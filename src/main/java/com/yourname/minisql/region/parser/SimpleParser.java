@@ -23,34 +23,35 @@ public class SimpleParser {
     }
     
     public ParsedSQL parse(String sql) {
-        sql = sql.trim().toUpperCase();
+        String trimmed = sql.trim();
+        String upper = trimmed.toUpperCase();
         ParsedSQL result = new ParsedSQL();
-        
-        if (sql.startsWith("CREATE TABLE")) {
+
+        if (upper.startsWith("CREATE TABLE")) {
             result.type = ParsedSQL.Type.CREATE_TABLE;
-            parseCreateTable(sql, result);
-        } else if (sql.startsWith("INSERT")) {
+            parseCreateTable(trimmed, result);
+        } else if (upper.startsWith("INSERT")) {
             result.type = ParsedSQL.Type.INSERT;
-            parseInsert(sql, result);
-        } else if (sql.startsWith("SELECT")) {
+            parseInsert(trimmed, result);
+        } else if (upper.startsWith("SELECT")) {
             result.type = ParsedSQL.Type.SELECT;
-            parseSelect(sql, result);
-        } else if (sql.startsWith("UPDATE")) {
+            parseSelect(trimmed, result);
+        } else if (upper.startsWith("UPDATE")) {
             result.type = ParsedSQL.Type.UPDATE;
-            parseUpdate(sql, result);
-        } else if (sql.startsWith("DELETE")) {
+            parseUpdate(trimmed, result);
+        } else if (upper.startsWith("DELETE")) {
             result.type = ParsedSQL.Type.DELETE;
-            parseDelete(sql, result);
+            parseDelete(trimmed, result);
         } else {
             result.type = ParsedSQL.Type.UNKNOWN;
         }
-        
+
         return result;
     }
     
     private void parseCreateTable(String sql, ParsedSQL result) {
         // 简化：提取表名
-        Pattern pattern = Pattern.compile("CREATE TABLE (\\w+)");
+        Pattern pattern = Pattern.compile("CREATE TABLE (\\w+)", Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(sql);
         if (matcher.find()) {
             result.tableName = matcher.group(1);
@@ -59,7 +60,7 @@ public class SimpleParser {
     
     private void parseInsert(String sql, ParsedSQL result) {
         // INSERT INTO users (id, name) VALUES (1, 'Alice')
-        Pattern pattern = Pattern.compile("INSERT INTO (\\w+)\\s*\\(([^)]+)\\)\\s*VALUES\\s*\\(([^)]+)\\)");
+        Pattern pattern = Pattern.compile("INSERT INTO (\\w+)\\s*\\(([^)]+)\\)\\s*VALUES\\s*\\(([^)]+)\\)", Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(sql);
         if (matcher.find()) {
             result.tableName = matcher.group(1);
@@ -77,7 +78,7 @@ public class SimpleParser {
     
     private void parseSelect(String sql, ParsedSQL result) {
         // SELECT * FROM users WHERE id = '1'
-        Pattern pattern = Pattern.compile("SELECT (\\S+)\\s+FROM (\\w+)(?:\\s+WHERE\\s+(\\w+)\\s*=\\s*'(\\w+)')?");
+        Pattern pattern = Pattern.compile("SELECT (\\S+)\\s+FROM (\\w+)(?:\\s+WHERE\\s+(\\w+)\\s*=\\s*'(\\w+)')?", Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(sql);
         if (matcher.find()) {
             String columnsStr = matcher.group(1);
@@ -99,7 +100,7 @@ public class SimpleParser {
     
     private void parseDelete(String sql, ParsedSQL result) {
         // DELETE FROM users WHERE id = '1'
-        Pattern pattern = Pattern.compile("DELETE FROM (\\w+)\\s+WHERE\\s+(\\w+)\\s*=\\s*'(\\w+)'");
+        Pattern pattern = Pattern.compile("DELETE FROM (\\w+)\\s+WHERE\\s+(\\w+)\\s*=\\s*'(\\w+)'", Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(sql);
         if (matcher.find()) {
             result.tableName = matcher.group(1);

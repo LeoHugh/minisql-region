@@ -49,14 +49,19 @@ public class DatabaseManager implements AutoCloseable {
     }
     
     private String createTable(SimpleParser.ParsedSQL parsed) {
-        Table table = new Table(parsed.tableName);
-        // 简化：预定义一些列
-        table.addColumn(new Column("id", Column.DataType.STRING));
-        table.addColumn(new Column("name", Column.DataType.STRING));
-        table.addColumn(new Column("age", Column.DataType.INT));
-        tables.put(parsed.tableName, table);
-        return "Table '" + parsed.tableName + "' created";
-    }
+    Table table = new Table(parsed.tableName);
+    
+    // 创建列时明确指定主键
+    Column idColumn = new Column("id", Column.DataType.STRING);
+    idColumn.setPrimaryKey(true);  // ← 设置 id 列为主键
+    table.addColumn(idColumn);
+    
+    table.addColumn(new Column("name", Column.DataType.STRING));
+    table.addColumn(new Column("age", Column.DataType.INT));
+    
+    tables.put(parsed.tableName, table);
+    return "Table '" + parsed.tableName + "' created";
+}
     
     private String insert(SimpleParser.ParsedSQL parsed) throws IOException {
         Table table = tables.get(parsed.tableName);

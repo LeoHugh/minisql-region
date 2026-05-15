@@ -21,7 +21,13 @@ public class Table{
     public Column getColumn(String name) {
         return columnMap.get(name);
     }
-    
+    public void addColumn(Column column) {
+        columns.add(column);
+        columnMap.put(column.getName(), column);
+        if (column.isPrimaryKey()) {
+            this.primaryKeyColumn = column.getName();
+        }
+    }
     public List<Column> getColumns() {
         return new ArrayList<>(columns);
     }

@@ -1,112 +1,176 @@
 package com.yourname.minisql.region.parser;
 
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.create.table.ColumnDefinition;
+import net.sf.jsqlparser.statement.create.table.CreateTable;
+import net.sf.jsqlparser.statement.delete.Delete;
+import net.sf.jsqlparser.statement.insert.Insert;
+import net.sf.jsqlparser.statement.select.PlainSelect;
+import net.sf.jsqlparser.statement.select.Select;
+import net.sf.jsqlparser.statement.select.SelectItem;
+import net.sf.jsqlparser.statement.update.Update;
+import net.sf.jsqlparser.statement.update.UpdateSet;
+import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
+import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
+import net.sf.jsqlparser.schema.Column;
+
 import java.util.*;
-import java.util.regex.*;
 
 public class SimpleParser {
-    
-    // 解析结果封装
+
+    // 稍微扩展一下你的 ParsedSQL，支持列定义（为了修复建表 Bug）
     public static class ParsedSQL {
         public enum Type { CREATE_TABLE, INSERT, SELECT, UPDATE, DELETE, UNKNOWN }
         public Type type;
         public String tableName;
-        public Map<String, Object> values;  // for INSERT/UPDATE
-        public List<String> columns;         // for SELECT
-        public Map<String, Object> where;    // 简化的 WHERE 条件
-        public String primaryKeyValue;       // 简化的点查: WHERE id = 'xxx'
+        
+        // for CREATE TABLE: 记录列名和数据类型
+        public List<ColumnDef> columnDefs; 
+        
+        // for INSERT/UPDATE
+        public Map<String, Object> values;  
+        
+        // for SELECT
+        public List<String> columns;         
+        
+        // 简化的 WHERE 条件 (如 id = '1')
+        public String primaryKeyValue;       
         
         @Override
         public String toString() {
-            return String.format("ParsedSQL{type=%s, table=%s, values=%s, where=%s}", 
-                                 type, tableName, values, where);
+            return "ParsedSQL{type=" + type + ", table='" + tableName + "'}";
         }
     }
-    
-    public ParsedSQL parse(String sql) {
-        String trimmed = sql.trim();
-        String upper = trimmed.toUpperCase();
-        ParsedSQL result = new ParsedSQL();
 
-        if (upper.startsWith("CREATE TABLE")) {
-            result.type = ParsedSQL.Type.CREATE_TABLE;
-            parseCreateTable(trimmed, result);
-        } else if (upper.startsWith("INSERT")) {
-            result.type = ParsedSQL.Type.INSERT;
-            parseInsert(trimmed, result);
-        } else if (upper.startsWith("SELECT")) {
-            result.type = ParsedSQL.Type.SELECT;
-            parseSelect(trimmed, result);
-        } else if (upper.startsWith("UPDATE")) {
-            result.type = ParsedSQL.Type.UPDATE;
-            parseUpdate(trimmed, result);
-        } else if (upper.startsWith("DELETE")) {
-            result.type = ParsedSQL.Type.DELETE;
-            parseDelete(trimmed, result);
+    // 内部帮助类：用于传递建表的列信息
+    public static class ColumnDef {
+        public String name;
+        public String type;
+        public ColumnDef(String name, String type) { this.name = name; this.type = type; }
+    }
+
+    public ParsedSQL parse(String sql) throws Exception {
+        ParsedSQL result = new ParsedSQL();
+        
+        // 核心魔法：这一行代码就把字符串变成了 AST 对象树！
+        Statement statement = CCJSqlParserUtil.parse(sql);
+
+        // 使用 instanceof 判断具体的 SQL 类型
+        if (statement instanceof CreateTable) {
+            parseCreateTable((CreateTable) statement, result);
+        } else if (statement instanceof Insert) {
+            parseInsert((Insert) statement, result);
+        } else if (statement instanceof Select) {
+            parseSelect((Select) statement, result);
+        } else if (statement instanceof Update) {
+            parseUpdate((Update) statement, result);
+        } else if (statement instanceof Delete) {
+            parseDelete((Delete) statement, result);
         } else {
             result.type = ParsedSQL.Type.UNKNOWN;
         }
 
         return result;
     }
-    
-    private void parseCreateTable(String sql, ParsedSQL result) {
-        // 简化：提取表名
-        Pattern pattern = Pattern.compile("CREATE TABLE (\\w+)", Pattern.CASE_INSENSITIVE);
-        Matcher matcher = pattern.matcher(sql);
-        if (matcher.find()) {
-            result.tableName = matcher.group(1);
+
+    private void parseCreateTable(CreateTable createTable, ParsedSQL result) {
+        result.type = ParsedSQL.Type.CREATE_TABLE;
+        // 直接获取表名，不怕空格，不怕大小写！
+        result.tableName = createTable.getTable().getName();
+        
+        result.columnDefs = new ArrayList<>();
+        // 获取括号里的列定义列表
+        for (ColumnDefinition colDef : createTable.getColumnDefinitions()) {
+            result.columnDefs.add(new ColumnDef(
+                    colDef.getColumnName(),
+                    colDef.getColDataType().getDataType()
+            ));
         }
     }
-    
-    private void parseInsert(String sql, ParsedSQL result) {
-        // INSERT INTO users (id, name) VALUES (1, 'Alice')
-        Pattern pattern = Pattern.compile("INSERT INTO (\\w+)\\s*\\(([^)]+)\\)\\s*VALUES\\s*\\(([^)]+)\\)", Pattern.CASE_INSENSITIVE);
-        Matcher matcher = pattern.matcher(sql);
-        if (matcher.find()) {
-            result.tableName = matcher.group(1);
-            String[] columns = matcher.group(2).split(",");
-            String[] values = matcher.group(3).split(",");
+
+    private void parseInsert(Insert insert, ParsedSQL result) {
+        result.type = ParsedSQL.Type.INSERT;
+        result.tableName = insert.getTable().getName();
+        
+        result.values = new HashMap<>();
+        List<Column> columns = insert.getColumns();
+        
+        // 获取 VALUES 里面的值
+        ExpressionList expressions = (ExpressionList) insert.getItemsList();
+        List<Expression> values = expressions.getExpressions();
+        
+        for (int i = 0; i < columns.size(); i++) {
+            String colName = columns.get(i).getColumnName();
+            // .toString() 会带上引号（比如 'Alice'），你可以选择在这里去掉引号
+            String val = values.get(i).toString().replace("'", "");
+            result.values.put(colName, val);
+        }
+    }
+
+    private void parseSelect(Select select, ParsedSQL result) {
+        result.type = ParsedSQL.Type.SELECT;
+        PlainSelect plainSelect = (PlainSelect) select.getSelectBody();
+        
+        // 1. 获取表名
+        result.tableName = plainSelect.getFromItem().toString();
+        
+        // 2. 获取 SELECT 后面的字段
+        result.columns = new ArrayList<>();
+        for (SelectItem item : plainSelect.getSelectItems()) {
+            result.columns.add(item.toString());
+        }
+        
+        // 3. 解析 WHERE 条件 (以简单的 id = '1' 为例)
+        Expression where = plainSelect.getWhere();
+        if (where instanceof EqualsTo) {
+            EqualsTo equalsTo = (EqualsTo) where;
+            // 左边是字段名，右边是值
+            String leftCol = equalsTo.getLeftExpression().toString();
+            String rightVal = equalsTo.getRightExpression().toString().replace("'", "");
             
-            result.values = new HashMap<>();
-            for (int i = 0; i < columns.length; i++) {
-                String col = columns[i].trim();
-                String val = values[i].trim().replace("'", "");
-                result.values.put(col, val);
+            // 如果你规定目前只支持按 id 查询
+            if ("id".equalsIgnoreCase(leftCol)) {
+                result.primaryKeyValue = rightVal;
             }
         }
     }
-    
-    private void parseSelect(String sql, ParsedSQL result) {
-        // SELECT * FROM users WHERE id = '1'
-        Pattern pattern = Pattern.compile("SELECT (\\S+)\\s+FROM (\\w+)(?:\\s+WHERE\\s+(\\w+)\\s*=\\s*'(\\w+)')?", Pattern.CASE_INSENSITIVE);
-        Matcher matcher = pattern.matcher(sql);
-        if (matcher.find()) {
-            String columnsStr = matcher.group(1);
-            result.columns = columnsStr.equals("*") ? null : Arrays.asList(columnsStr.split(","));
-            result.tableName = matcher.group(2);
-            
-            if (matcher.group(3) != null) {
-                result.where = new HashMap<>();
-                result.where.put(matcher.group(3), matcher.group(4));
-                result.primaryKeyValue = matcher.group(4);
-            }
-        }
-    }
-    
-    private void parseUpdate(String sql, ParsedSQL result) {
-        // 简化实现
+
+    private void parseUpdate(Update update, ParsedSQL result) {
         result.type = ParsedSQL.Type.UPDATE;
+        result.tableName = update.getTable().getName();
+        
+        result.values = new HashMap<>();
+        for (UpdateSet updateSet : update.getUpdateSets()) {
+            String colName = updateSet.getColumns().get(0).getColumnName();
+            String val = updateSet.getExpressions().get(0).toString().replace("'", "");
+            result.values.put(colName, val);
+        }
+        
+        Expression where = update.getWhere();
+        if (where instanceof EqualsTo) {
+            EqualsTo equalsTo = (EqualsTo) where;
+            String leftCol = equalsTo.getLeftExpression().toString();
+            String rightVal = equalsTo.getRightExpression().toString().replace("'", "");
+            if ("id".equalsIgnoreCase(leftCol)) {
+                result.primaryKeyValue = rightVal;
+            }
+        }
     }
-    
-    private void parseDelete(String sql, ParsedSQL result) {
-        // DELETE FROM users WHERE id = '1'
-        Pattern pattern = Pattern.compile("DELETE FROM (\\w+)\\s+WHERE\\s+(\\w+)\\s*=\\s*'(\\w+)'", Pattern.CASE_INSENSITIVE);
-        Matcher matcher = pattern.matcher(sql);
-        if (matcher.find()) {
-            result.tableName = matcher.group(1);
-            result.where = new HashMap<>();
-            result.where.put(matcher.group(2), matcher.group(3));
-            result.primaryKeyValue = matcher.group(3);
+
+    private void parseDelete(Delete delete, ParsedSQL result) {
+        result.type = ParsedSQL.Type.DELETE;
+        result.tableName = delete.getTable().getName();
+        
+        Expression where = delete.getWhere();
+        if (where instanceof EqualsTo) {
+            EqualsTo equalsTo = (EqualsTo) where;
+            String leftCol = equalsTo.getLeftExpression().toString();
+            String rightVal = equalsTo.getRightExpression().toString().replace("'", "");
+            if ("id".equalsIgnoreCase(leftCol)) {
+                result.primaryKeyValue = rightVal;
+            }
         }
     }
 }

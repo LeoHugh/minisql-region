@@ -95,4 +95,10 @@ public class WAL implements AutoCloseable {
             writer.close();
         }
     }
+
+    public void destroy() throws IOException {
+        close();
+        Files.deleteIfExists(walPath);
+        log.info("Deleted old WAL file: {}", walPath);
+    }
 }

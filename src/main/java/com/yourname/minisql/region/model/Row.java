@@ -6,6 +6,7 @@ import java.util.Map;
 public class Row {
     private Map<String, Object> values;
     private long timestamp;  // MVCC 版本控制
+    private boolean deleted = false; // 墓碑标记
     
     public Row() {
         this.values = new HashMap<>();
@@ -20,9 +21,9 @@ public class Row {
         return values.get(column);
     }
     
-    public <T> T getAs(String column, Class<T> clazz) {
+    /*public <T> T getAs(String column, Class<T> clazz) {
         return clazz.cast(values.get(column));
-    }
+    }*/
     
     public Map<String, Object> getAll() {
         return new HashMap<>(values);
@@ -30,6 +31,9 @@ public class Row {
     
     public long getTimestamp() { return timestamp; }
     public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
+    
+    public boolean isDeleted() { return deleted; }
+    public void setDeleted(boolean deleted) { this.deleted = deleted; }
     
     // 转为字节数组（用于存储到 LSM-Tree）
     public byte[] toBytes() {
@@ -41,9 +45,14 @@ public class Row {
     public static Row fromBytes(byte[] bytes) {
         return com.alibaba.fastjson2.JSON.parseObject(bytes, Row.class);
     }
-    
-    @Override
-    public String toString() {
-        return String.format("Row{ts=%d, values=%s}", timestamp, values);
+
+    //供fastjson2使用
+    public Map<String, Object> getValues() {
+        return values;
     }
+    
+    public void setValues(Map<String, Object> values) {
+        this.values = values;
+    }
+    
 }

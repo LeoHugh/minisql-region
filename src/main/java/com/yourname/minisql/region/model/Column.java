@@ -1,16 +1,20 @@
 package com.yourname.minisql.region.model;
 
-public class Column {
+import java.io.Serializable;
+
+public class Column implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private String name;
     private DataType type;      // ← 确认有这个声明
     private boolean isPrimaryKey;
     private boolean nullable;    // ← 确认有这个声明
     
     public enum DataType {
-        INT, LONG, STRING, BYTES, BOOLEAN
+        INT, LONG, STRING, BYTES, BOOLEAN,DOUBLE
     }
     
-    // 构造器1：简化版（供 DatabaseManager 使用）
+    // constructor with required fields
     public Column(String name, DataType type) {
         this.name = name;
         this.type = type;
@@ -18,7 +22,7 @@ public class Column {
         this.nullable = true;
     }
     
-    // 构造器2：完整版（所有属性）
+    // CONSTRUCTOR WITH ALL FIELDS
     public Column(String name, DataType type, boolean isPrimaryKey, boolean nullable) {
         this.name = name;
         this.type = type;
@@ -36,10 +40,5 @@ public class Column {
     public boolean isNullable() { return nullable; }
     public void setNullable(boolean nullable) { this.nullable = nullable; }
     
-    @Override
-    public String toString() {
-        // 注意这里用的是 this.type 和 this.nullable
-        return String.format("Column{name='%s', type=%s, pk=%s, nullable=%s}", 
-                             name, type, isPrimaryKey, nullable);
-    }
+    
 }

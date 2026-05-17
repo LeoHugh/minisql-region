@@ -6,7 +6,7 @@ import com.yourname.minisql.region.parser.SimpleParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
+import java.io.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -16,13 +16,46 @@ public class DatabaseManager implements AutoCloseable {
     private final LSMTreeEngine storage;
     private final SimpleParser parser;
     private final ConcurrentHashMap<String, Table> tables;
-    
+    private final String catalogPath; // 元数据存储路径
+
     public DatabaseManager(String dataDir) throws IOException {
         this.storage = new LSMTreeEngine(dataDir);
         this.parser = new SimpleParser();
-        this.tables = new ConcurrentHashMap<>();
+        this.catalogPath = dataDir + "/catalog.meta";
+        
+        // 【核心改进】：不再单单 new 出来，而是尝试从磁盘加载历史表结构
+        this.tables = loadCatalog();
     }
     
+    // 【核心新增】：从磁盘反序列化加载 Catalog
+    @SuppressWarnings("unchecked")
+    private ConcurrentHashMap<String, Table> loadCatalog() {
+        File file = new File(catalogPath);
+        if (!file.exists()) {
+            log.info("Catalog file not found. Creating a clean schema map.");
+            return new ConcurrentHashMap<>();
+        }
+        
+        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(file))) {
+            ConcurrentHashMap<String, Table> loadedTables = (ConcurrentHashMap<String, Table>) ois.readObject();
+            log.info("Successfully loaded {} tables metadata from catalog.", loadedTables.size());
+            return loadedTables;
+        } catch (Exception e) {
+            log.error("Failed to load catalog, starting with empty schema map", e);
+            return new ConcurrentHashMap<>();
+        }
+    }
+
+    // 【核心新增】：把当前所有的表结构持久化写到磁盘
+    private void saveCatalog() {
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(catalogPath))) {
+            oos.writeObject(tables);
+            log.info("Successfully saved catalog metadata with {} tables.", tables.size());
+        } catch (IOException e) {
+            log.error("Failed to save catalog metadata", e);
+        }
+    }
+
     public String execute(String sql) {
         try {
             SimpleParser.ParsedSQL parsed = parser.parse(sql);
@@ -49,19 +82,36 @@ public class DatabaseManager implements AutoCloseable {
     }
     
     private String createTable(SimpleParser.ParsedSQL parsed) {
-    Table table = new Table(parsed.tableName);
-    
-    // 创建列时明确指定主键
-    Column idColumn = new Column("id", Column.DataType.STRING);
-    idColumn.setPrimaryKey(true);  // ← 设置 id 列为主键
-    table.addColumn(idColumn);
-    
-    table.addColumn(new Column("name", Column.DataType.STRING));
-    table.addColumn(new Column("age", Column.DataType.INT));
-    
-    tables.put(parsed.tableName, table);
-    return "Table '" + parsed.tableName + "' created";
-}
+        if (tables.containsKey(parsed.tableName)) {
+            return "Table '" + parsed.tableName + "' already exists.";
+        }
+        
+        Table table = new Table(parsed.tableName);
+        if (parsed.columnDefs == null || parsed.columnDefs.isEmpty()) {
+            return "Error: No columns defined for table " + parsed.tableName;
+        }
+
+        for (int i = 0; i < parsed.columnDefs.size(); i++) {
+            SimpleParser.ColumnDef def = parsed.columnDefs.get(i);
+            Column.DataType type = Column.DataType.STRING;
+            if (def.type.toUpperCase().contains("INT")) {
+                type = Column.DataType.INT;
+            } else if (def.type.toUpperCase().contains("DOUBLE")) {
+                type = Column.DataType.DOUBLE;
+            }
+            
+            Column column = new Column(def.name, type);
+            if (i == 0) {
+                column.setPrimaryKey(true);
+            }
+            table.addColumn(column);
+        }
+        
+        tables.put(parsed.tableName, table);
+        // 【核心触发】：建表后自动保存元数据
+        saveCatalog(); 
+        return "Table '" + parsed.tableName + "' created successfully with " + parsed.columnDefs.size() + " columns.";
+    }
     
     private String insert(SimpleParser.ParsedSQL parsed) throws IOException {
         Table table = tables.get(parsed.tableName);
@@ -74,10 +124,9 @@ public class DatabaseManager implements AutoCloseable {
             row.put(entry.getKey(), entry.getValue());
         }
         
-        // 使用主键作为存储 key
         String primaryKey = (String) row.get(table.getPrimaryKeyColumn());
         if (primaryKey == null) {
-            return "Primary key is required";
+            return "Primary key is required.";
         }
         
         storage.put(primaryKey.getBytes(), row);
@@ -91,14 +140,12 @@ public class DatabaseManager implements AutoCloseable {
         }
         
         if (parsed.primaryKeyValue != null) {
-            // 点查
             Row row = storage.get(parsed.primaryKeyValue.getBytes());
             if (row == null) {
                 return "No row found with key: " + parsed.primaryKeyValue;
             }
             return formatRow(row);
         } else {
-            // 范围查询等后续实现
             return "Only point queries are supported in this version";
         }
     }
@@ -111,8 +158,22 @@ public class DatabaseManager implements AutoCloseable {
         return "Only delete by primary key is supported";
     }
     
-    private String update(SimpleParser.ParsedSQL parsed) {
-        return "UPDATE not implemented yet";
+    private String update(SimpleParser.ParsedSQL parsed) throws IOException {
+        if (parsed.primaryKeyValue == null) {
+            return "Only update by primary key is supported";
+        }
+        
+        Row originalRow = storage.get(parsed.primaryKeyValue.getBytes());
+        if (originalRow == null) {
+            return "No row found with key: " + parsed.primaryKeyValue;
+        }
+        
+        for (Map.Entry<String, Object> entry : parsed.values.entrySet()) {
+            originalRow.put(entry.getKey(), entry.getValue());
+        }
+        
+        storage.put(parsed.primaryKeyValue.getBytes(), originalRow);
+        return "Updated row with key: " + parsed.primaryKeyValue;
     }
     
     private String formatRow(Row row) {
@@ -132,6 +193,8 @@ public class DatabaseManager implements AutoCloseable {
     
     @Override
     public void close() throws IOException {
+        // 【核心改进】：在数据库优雅关闭前，必须强制把最新的元数据安全写回磁盘
+        saveCatalog(); 
         storage.close();
     }
 }

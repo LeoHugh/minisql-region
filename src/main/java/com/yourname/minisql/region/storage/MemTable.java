@@ -11,7 +11,8 @@ public class MemTable {
     private final long maxSize;
     
     public MemTable() {
-        this(64 * 1024 * 1024);  // 默认 64MB
+        // this(64 * 1024 * 1024);  默认 64MB
+        this(64*1024);
     }
     
     public MemTable(long maxSizeBytes) {
@@ -34,10 +35,9 @@ public class MemTable {
     }
     
     public void delete(byte[] key) {
-        Row removed = table.remove(key);
-        if (removed != null) {
-            approximateSize.addAndGet(-(key.length + removed.toBytes().length));
-        }
+        Row tombstone = new Row();
+        tombstone.setDeleted(true);
+        put(key, tombstone);
     }
     
     public List<Map.Entry<byte[], Row>> scanAll() {

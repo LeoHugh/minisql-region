@@ -16,8 +16,7 @@ public class SSTable implements Closeable {
     private final Path indexPath;
     private RandomAccessFile dataFile;
     private final Map<ByteArrayWrapper, Long> index;  // key -> offset in data file
-    private final long minKey;   // 用于范围查询优化
-    private final long maxKey;
+
     
     public SSTable(int id, String dataDir, List<Map.Entry<byte[], Row>> entries) throws IOException {
         this.id = id;
@@ -27,17 +26,7 @@ public class SSTable implements Closeable {
         
         // 写入数据
         writeData(entries);
-        
-        // 计算 min/max key (这里假设 key 是字符串转 byte[])
-        long min = Long.MAX_VALUE, max = Long.MIN_VALUE;
-        for (var entry : entries) {
-            long keyVal = bytesToLong(entry.getKey());
-            min = Math.min(min, keyVal);
-            max = Math.max(max, keyVal);
-        }
-        this.minKey = min;
-        this.maxKey = max;
-        
+      
         // 打开读取句柄
         this.dataFile = new RandomAccessFile(dataPath.toFile(), "r");
         log.info("Created SSTable {} with {} entries, size: {} bytes", id, entries.size(), Files.size(dataPath));
@@ -53,11 +42,6 @@ public class SSTable implements Closeable {
         
         // 加载索引
         loadIndex();
-        
-        // 读取 min/max key（可以从索引的第一条和最后一条获取）
-        this.minKey = 0;  // 简化，实际需要从索引计算
-        this.maxKey = Long.MAX_VALUE;
-        
         log.info("Loaded existing SSTable {} from disk", id);
     }
     
@@ -79,7 +63,7 @@ public class SSTable implements Closeable {
                     idxOut.writeInt(key.length);
                     idxOut.write(key);
                     idxOut.writeLong(offset);
-                    
+                    index.put(new ByteArrayWrapper(key), offset);
                     // 写入数据
                     dataOut.writeInt(key.length);
                     dataOut.write(key);
@@ -106,11 +90,16 @@ public class SSTable implements Closeable {
     }
     
     public Row get(byte[] key) throws IOException {
+        String keyStr = new String(key);
         ByteArrayWrapper wrapper = new ByteArrayWrapper(key);
         Long offset = index.get(wrapper);
+        
         if (offset == null) {
+            log.info("  [SSTable-{}] 内存 Index Map 中没有找到 Key: {} 的偏移量", id, keyStr);
             return null;
         }
+        
+        log.info("  [SSTable-{}] 内存 Index 命中！Key: {} 的文件偏移量为: {}", id, keyStr, offset);
         
         synchronized (dataFile) {
             dataFile.seek(offset);
@@ -122,7 +111,11 @@ public class SSTable implements Closeable {
             byte[] rowBytes = new byte[rowLen];
             dataFile.readFully(rowBytes);
             
-            return Row.fromBytes(rowBytes);
+            log.info("  [SSTable-{}] 成功从磁盘读取出 Row 的字节数据，长度: {}", id, rowLen);
+            
+            Row row = Row.fromBytes(rowBytes);
+            log.info("  [SSTable-{}] 反序列化 Row 结果: {}", id, row.getAll());
+            return row;
         }
     }
     
@@ -131,9 +124,27 @@ public class SSTable implements Closeable {
         return true;
     }
     
+    public List<Map.Entry<byte[], Row>> scanAll() throws IOException {
+        List<Map.Entry<byte[], Row>> result = new ArrayList<>();
+        synchronized (dataFile) {
+            dataFile.seek(0);
+            while (dataFile.getFilePointer() < dataFile.length()) {
+                int keyLen = dataFile.readInt();
+                byte[] foundKey = new byte[keyLen];
+                dataFile.readFully(foundKey);
+                
+                int rowLen = dataFile.readInt();
+                byte[] rowBytes = new byte[rowLen];
+                dataFile.readFully(rowBytes);
+                
+                result.add(new AbstractMap.SimpleEntry<>(foundKey, Row.fromBytes(rowBytes)));
+            }
+        }
+        return result;
+    }
+    
     public int getId() { return id; }
-    public long getMinKey() { return minKey; }
-    public long getMaxKey() { return maxKey; }
+
     
     private long bytesToLong(byte[] bytes) {
         // 简化：假设 key 是数字字符串
@@ -150,7 +161,12 @@ public class SSTable implements Closeable {
             dataFile.close();
         }
     }
-    
+    public void destroy() throws IOException {
+        close(); 
+        Files.deleteIfExists(dataPath);
+        Files.deleteIfExists(indexPath);
+        log.info("Deleted old SSTable files: {} and {}", dataPath.getFileName(), indexPath.getFileName());
+    }
     // 包装类用于 HashMap 的 byte[] key
     private static class ByteArrayWrapper {
         private final byte[] bytes;

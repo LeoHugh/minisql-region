@@ -14,12 +14,11 @@ public class LSMTreeEngine implements Closeable {
     
     private MemTable activeMemTable;
     private WAL wal;
-    private final List<SSTable> sstables;  // 从新到旧排列
+    private final List<SSTable> sstables;  
     private final String dataDir;
     private int nextWalId;
     private int nextSSTId;
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    
     public LSMTreeEngine(String dataDir) throws IOException {
         this.dataDir = dataDir;
         this.sstables = new ArrayList<>();
@@ -54,23 +53,31 @@ public class LSMTreeEngine implements Closeable {
     }
     
     public Row get(byte[] key) throws IOException {
+        String keyStr = new String(key);
+        log.info("[Engine Get] 准备查找 Key: {}", keyStr);
         lock.readLock().lock();
         try {
             // 1. 查 MemTable
             Row row = activeMemTable.get(key);
             if (row != null) {
-                return row;
+                log.info("[Engine Get] 在 Active MemTable 中找到 Key: {}", keyStr);
+                return row.isDeleted() ? null : row;
             }
             
+            log.info("[Engine Get] MemTable 未命中，准备遍历 {} 个 SSTable", sstables.size());
             // 2. 查 SSTable（从新到旧）
             for (SSTable sst : sstables) {
+                log.info("[Engine Get] 正在查询 SSTable ID: {}", sst.getId());
                 if (sst.mayContain(key)) {
                     row = sst.get(key);
                     if (row != null) {
-                        return row;
+                        log.info("[Engine Get] 在 SSTable ID: {} 中成功找到 Key: {}", sst.getId(), keyStr);
+                        return row.isDeleted() ? null : row;
                     }
+                    log.info("[Engine Get] SSTable ID: {} 中没有找到 Key: {}", sst.getId(), keyStr);
                 }
             }
+            log.info("[Engine Get] 所有层级均未找到 Key: {}", keyStr);
             return null;
         } finally {
             lock.readLock().unlock();
@@ -98,7 +105,7 @@ public class LSMTreeEngine implements Closeable {
         WAL oldWal = wal;
         
         activeMemTable = new MemTable();
-        wal = new WAL(dataDir, nextWalId++);
+        
         
         // 2. 将旧 MemTable 刷成 SSTable
         if (oldMemTable.size() > 0) {
@@ -107,10 +114,12 @@ public class LSMTreeEngine implements Closeable {
         }
         
         // 3. 关闭旧 WAL
-        oldWal.close();
+        wal = new WAL(dataDir, nextWalId++);
+        
+
         
         // 4. 删除旧 WAL 文件（可选）
-        // Files.deleteIfExists(Paths.get(dataDir, String.format("wal_%d.log", nextWalId - 1)));
+        oldWal.destroy();
         
         log.info("Flush complete. Current SSTable count: {}", sstables.size());
         
@@ -119,11 +128,12 @@ public class LSMTreeEngine implements Closeable {
             compact();
         }
     }
-    
+
+
+
     private void compact() throws IOException {
         log.info("Starting compaction...");
         // 简单的合并策略：合并最旧的 N 个 SSTable
-        // 实际应该实现 Leveled Compaction
         
         lock.writeLock().lock();
         try {
@@ -135,17 +145,32 @@ public class LSMTreeEngine implements Closeable {
             
             // 读取所有 entry
             Map<byte[], Row> merged = new TreeMap<>(MemTable.ByteArrayComparator.INSTANCE);
-            for (SSTable sst : toCompact) {
-                // 这里需要实现遍历 SSTable 的所有数据
-                // 简化：暂时不实现全量合并
-                log.warn("Compaction simplified - skipping actual merge");
+            
+            // toCompact 中，索引越小的数据越新，所以从后往前遍历（从旧到新），这样新数据会自动覆盖旧数据
+            for (int i = toCompact.size() - 1; i >= 0; i--) {
+                SSTable sst = toCompact.get(i);
+                List<Map.Entry<byte[], Row>> entries = sst.scanAll();
+                for (Map.Entry<byte[], Row> entry : entries) {
+                    merged.put(entry.getKey(), entry.getValue());
+                }
             }
             
-            // 创建新的 SSTable
-            // List<Map.Entry<byte[], Row>> entries = new ArrayList<>(merged.entrySet());
-            // SSTable newSst = new SSTable(nextSSTId++, dataDir, entries);
-            // sstables.add(0, newSst);
+            // 过滤掉带有墓碑标记的 entry (即真正删除)
+            merged.entrySet().removeIf(entry -> entry.getValue().isDeleted());
             
+            // 创建新的 SSTable
+            if (!merged.isEmpty()) {
+                List<Map.Entry<byte[], Row>> entries = new ArrayList<>(merged.entrySet());
+                SSTable newSst = new SSTable(nextSSTId++, dataDir, entries);
+                // 把它放回旧文件的位置，也就是放到列表最后（作为最旧的数据）
+                sstables.add(newSst);
+            }
+            
+            // 销毁旧的 SSTable，释放磁盘空间
+            for (SSTable sst : toCompact) {
+                sst.destroy();
+            }
+            log.info("Compaction finished.");
         } finally {
             lock.writeLock().unlock();
         }
@@ -190,24 +215,40 @@ public class LSMTreeEngine implements Closeable {
             log.info("Recovering from WAL: {}", latestWal);
             WAL recoveryWal = new WAL(dataDir, latestWalId);
             List<WAL.WalEntry> entries = recoveryWal.recover();
+            MemTable tempMemTable = new MemTable();
+            
             for (WAL.WalEntry entry : entries) {
                 if (entry.op == WAL.Operation.PUT) {
-                    activeMemTable.put(entry.key, entry.row);
+                    tempMemTable.put(entry.key, entry.row);
                 } else {
-                    activeMemTable.delete(entry.key);
+                    tempMemTable.delete(entry.key);
+                }
+                
+                if (tempMemTable.needsFlush()) {
+                    SSTable sst = new SSTable(nextSSTId++, dataDir, tempMemTable.scanAll());
+                    sstables.add(0, sst);
+                    tempMemTable = new MemTable(); 
                 }
             }
-            recoveryWal.close();
+            
+            if (tempMemTable.size() > 0) {
+                SSTable sst = new SSTable(nextSSTId++, dataDir, tempMemTable.scanAll());
+                sstables.add(0, sst);
+                log.info("Force flushed recovered MemTable to SSTable.");
+            }
+            
+            // 恢复完成，旧的 WAL 已经完成历史使命，安全销毁！
+            recoveryWal.destroy(); 
             nextWalId = latestWalId + 1;
         } else {
             nextWalId = 0;
         }
         
-        // 3. 创建新的 WAL
+        // 3. 创建全新的、空的运行环境
+        activeMemTable = new MemTable();
         wal = new WAL(dataDir, nextWalId++);
         
-        log.info("Recovery complete. MemTable size: {}, SSTable count: {}", 
-                 activeMemTable.size(), sstables.size());
+        log.info("Recovery complete. Active MemTable is clean. SSTable count: {}", sstables.size());
     }
     
     public void printStats() {

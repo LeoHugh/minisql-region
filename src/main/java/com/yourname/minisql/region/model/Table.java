@@ -3,10 +3,13 @@ package com.yourname.minisql.region.model;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
+import java.io.Serializable;
 
 
-public class Table{
+public class Table implements Serializable {
 
+    private static final long serialVersionUID = 1L;
+    
     private String name;
     private List<Column> columns;
     private String primaryKeyColumn;
@@ -35,10 +38,4 @@ public class Table{
     public String getName() { return name; }
     public String getPrimaryKeyColumn() { return primaryKeyColumn; }
     
-    @Override
-    public String toString() {
-        return String.format("Table{name='%s', columns=%s, pk='%s'}", name, columns, primaryKeyColumn);
-    }
-
-
 }

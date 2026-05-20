@@ -1,1 +1,65 @@
-/zookeeper/
+# =========================
+# 1. Maven 编译产出目录
+# =========================
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+# 忽略掉 Maven Wrapper 自己下载的 jar，但保留脚本
+.mvn/wrapper/maven-wrapper.jar
+
+# =========================
+# 2. Java 编译和日志
+# =========================
+*.class
+*.log
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# JVM 崩溃日志
+hs_err_pid*
+replay_pid*
+
+# =========================
+# 3. IDE 配置文件
+# =========================
+# VS Code
+.vscode/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Eclipse
+.project
+.classpath
+.settings/
+.metadata/
+
+# =========================
+# 4. 操作系统生成文件
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# 5. ZooKeeper 相关
+# =========================
+# 由于 zookeeper/ 看起来像是下载的完整二进制发行版
+# 如果你不打算将几十 MB 的 Zookeeper 工具包传到 Git，可以取消下面这行的注释忽略整个目录：
+zookeeper/
+
+# 如果你需要提交 zookeeper/ 的配置和脚本，但要排除它运行时产生的日志和快照数据，请务必忽略以下目录：
+zookeeper/logs/
+zookeeper/data/

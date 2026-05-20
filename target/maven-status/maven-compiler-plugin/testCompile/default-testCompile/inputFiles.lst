@@ -1,1 +1,5 @@
+/home/lhc/minisql-region/src/test/java/com/yourname/minisql/region/integration/DistributedSystemTest.java
+/home/lhc/minisql-region/src/test/java/com/yourname/minisql/region/network/RegionServerTestDebug.java
+/home/lhc/minisql-region/src/test/java/com/yourname/minisql/region/network/MessageTest.java
+/home/lhc/minisql-region/src/test/java/com/yourname/minisql/region/master/MasterServerTest.java
 /home/lhc/minisql-region/src/test/java/com/yourname/minisql/region/manager/DatabaseManagerTest.java

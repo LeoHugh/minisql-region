@@ -1,0 +1,22 @@
+-------------------------------------------------------------------------------
+Test set: com.yourname.minisql.region.integration.DistributedSystemTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.198 s <<< FAILURE! -- in com.yourname.minisql.region.integration.DistributedSystemTest
+com.yourname.minisql.region.integration.DistributedSystemTest.testCompleteWorkflow -- Time elapsed: 0.180 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: 
+Should get region address and result, actual output: 
+>>> 步骤1: 执行建表
+SQL: CREATE TABLE users (id STRING, name STRING, age INT)
+Got region address: localhost:8888
+Error: 连接被拒绝
+ ==> expected: <true> but was: <false>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertTrue.failNotTrue(AssertTrue.java:63)
+	at org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:36)
+	at org.junit.jupiter.api.Assertions.assertTrue(Assertions.java:214)
+	at com.yourname.minisql.region.integration.DistributedSystemTest.testCompleteWorkflow(DistributedSystemTest.java:113)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+

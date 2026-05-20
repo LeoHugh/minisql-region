@@ -1,0 +1,392 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.yourname.minisql.region.network.RegionServerTestDebug" time="0.298" tests="5" errors="0" skipped="0" failures="3">
+  <properties>
+    <property name="java.specification.version" value="17"/>
+    <property name="sun.jnu.encoding" value="UTF-8"/>
+    <property name="java.class.path" value="/home/lhc/minisql-region/target/test-classes:/home/lhc/minisql-region/target/classes:/home/lhc/.m2/repository/com/alibaba/fastjson2/fastjson2/2.0.43/fastjson2-2.0.43.jar:/home/lhc/.m2/repository/com/google/guava/guava/32.1.3-jre/guava-32.1.3-jre.jar:/home/lhc/.m2/repository/com/google/guava/failureaccess/1.0.1/failureaccess-1.0.1.jar:/home/lhc/.m2/repository/com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar:/home/lhc/.m2/repository/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.jar:/home/lhc/.m2/repository/org/checkerframework/checker-qual/3.37.0/checker-qual-3.37.0.jar:/home/lhc/.m2/repository/com/google/errorprone/error_prone_annotations/2.21.1/error_prone_annotations-2.21.1.jar:/home/lhc/.m2/repository/com/google/j2objc/j2objc-annotations/2.8/j2objc-annotations-2.8.jar:/home/lhc/.m2/repository/org/slf4j/slf4j-simple/2.0.9/slf4j-simple-2.0.9.jar:/home/lhc/.m2/repository/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar:/home/lhc/.m2/repository/org/junit/jupiter/junit-jupiter/5.10.1/junit-jupiter-5.10.1.jar:/home/lhc/.m2/repository/org/junit/jupiter/junit-jupiter-api/5.10.1/junit-jupiter-api-5.10.1.jar:/home/lhc/.m2/repository/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar:/home/lhc/.m2/repository/org/junit/platform/junit-platform-commons/1.10.1/junit-platform-commons-1.10.1.jar:/home/lhc/.m2/repository/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.jar:/home/lhc/.m2/repository/org/junit/jupiter/junit-jupiter-params/5.10.1/junit-jupiter-params-5.10.1.jar:/home/lhc/.m2/repository/org/junit/jupiter/junit-jupiter-engine/5.10.1/junit-jupiter-engine-5.10.1.jar:/home/lhc/.m2/repository/org/junit/platform/junit-platform-engine/1.10.1/junit-platform-engine-1.10.1.jar:/home/lhc/.m2/repository/com/github/jsqlparser/jsqlparser/4.6/jsqlparser-4.6.jar:"/>
+    <property name="java.vm.vendor" value="Ubuntu"/>
+    <property name="sun.arch.data.model" value="64"/>
+    <property name="java.vendor.url" value="https://ubuntu.com/"/>
+    <property name="user.timezone" value="Asia/Shanghai"/>
+    <property name="os.name" value="Linux"/>
+    <property name="java.vm.specification.version" value="17"/>
+    <property name="sun.java.launcher" value="SUN_STANDARD"/>
+    <property name="user.country" value="CN"/>
+    <property name="sun.boot.library.path" value="/usr/lib/jvm/java-17-openjdk-amd64/lib"/>
+    <property name="sun.java.command" value="/home/lhc/minisql-region/target/surefire/surefirebooter-20260520133918876_3.jar /home/lhc/minisql-region/target/surefire 2026-05-20T13-39-18_788-jvmRun1 surefire-20260520133918876_1tmp surefire_0-20260520133918876_2tmp"/>
+    <property name="jdk.debug" value="release"/>
+    <property name="test" value="RegionServerTestDebug"/>
+    <property name="surefire.test.class.path" value="/home/lhc/minisql-region/target/test-classes:/home/lhc/minisql-region/target/classes:/home/lhc/.m2/repository/com/alibaba/fastjson2/fastjson2/2.0.43/fastjson2-2.0.43.jar:/home/lhc/.m2/repository/com/google/guava/guava/32.1.3-jre/guava-32.1.3-jre.jar:/home/lhc/.m2/repository/com/google/guava/failureaccess/1.0.1/failureaccess-1.0.1.jar:/home/lhc/.m2/repository/com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar:/home/lhc/.m2/repository/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.jar:/home/lhc/.m2/repository/org/checkerframework/checker-qual/3.37.0/checker-qual-3.37.0.jar:/home/lhc/.m2/repository/com/google/errorprone/error_prone_annotations/2.21.1/error_prone_annotations-2.21.1.jar:/home/lhc/.m2/repository/com/google/j2objc/j2objc-annotations/2.8/j2objc-annotations-2.8.jar:/home/lhc/.m2/repository/org/slf4j/slf4j-simple/2.0.9/slf4j-simple-2.0.9.jar:/home/lhc/.m2/repository/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar:/home/lhc/.m2/repository/org/junit/jupiter/junit-jupiter/5.10.1/junit-jupiter-5.10.1.jar:/home/lhc/.m2/repository/org/junit/jupiter/junit-jupiter-api/5.10.1/junit-jupiter-api-5.10.1.jar:/home/lhc/.m2/repository/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar:/home/lhc/.m2/repository/org/junit/platform/junit-platform-commons/1.10.1/junit-platform-commons-1.10.1.jar:/home/lhc/.m2/repository/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.jar:/home/lhc/.m2/repository/org/junit/jupiter/junit-jupiter-params/5.10.1/junit-jupiter-params-5.10.1.jar:/home/lhc/.m2/repository/org/junit/jupiter/junit-jupiter-engine/5.10.1/junit-jupiter-engine-5.10.1.jar:/home/lhc/.m2/repository/org/junit/platform/junit-platform-engine/1.10.1/junit-platform-engine-1.10.1.jar:/home/lhc/.m2/repository/com/github/jsqlparser/jsqlparser/4.6/jsqlparser-4.6.jar:"/>
+    <property name="sun.cpu.endian" value="little"/>
+    <property name="user.home" value="/home/lhc"/>
+    <property name="user.language" value="zh"/>
+    <property name="java.specification.vendor" value="Oracle Corporation"/>
+    <property name="java.version.date" value="2026-01-20"/>
+    <property name="java.home" value="/usr/lib/jvm/java-17-openjdk-amd64"/>
+    <property name="file.separator" value="/"/>
+    <property name="basedir" value="/home/lhc/minisql-region"/>
+    <property name="java.vm.compressedOopsMode" value="Zero based"/>
+    <property name="line.separator" value="&#10;"/>
+    <property name="java.vm.specification.vendor" value="Oracle Corporation"/>
+    <property name="java.specification.name" value="Java Platform API Specification"/>
+    <property name="surefire.real.class.path" value="/home/lhc/minisql-region/target/surefire/surefirebooter-20260520133918876_3.jar"/>
+    <property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/>
+    <property name="java.runtime.version" value="17.0.18+8-Ubuntu-122.04.1"/>
+    <property name="user.name" value="lhc"/>
+    <property name="path.separator" value=":"/>
+    <property name="os.version" value="6.8.0-111-generic"/>
+    <property name="java.runtime.name" value="OpenJDK Runtime Environment"/>
+    <property name="file.encoding" value="UTF-8"/>
+    <property name="java.vm.name" value="OpenJDK 64-Bit Server VM"/>
+    <property name="localRepository" value="/home/lhc/.m2/repository"/>
+    <property name="java.vendor.url.bug" value="https://bugs.launchpad.net/ubuntu/+source/openjdk-17"/>
+    <property name="java.io.tmpdir" value="/tmp"/>
+    <property name="java.version" value="17.0.18"/>
+    <property name="user.dir" value="/home/lhc/minisql-region"/>
+    <property name="os.arch" value="amd64"/>
+    <property name="java.vm.specification.name" value="Java Virtual Machine Specification"/>
+    <property name="native.encoding" value="UTF-8"/>
+    <property name="java.library.path" value="/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:/usr/java/packages/lib:/usr/lib/x86_64-linux-gnu/jni:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/lib/jni:/lib:/usr/lib"/>
+    <property name="java.vm.info" value="mixed mode, sharing"/>
+    <property name="java.vendor" value="Ubuntu"/>
+    <property name="java.vm.version" value="17.0.18+8-Ubuntu-122.04.1"/>
+    <property name="java.specification.maintenance.version" value="1"/>
+    <property name="sun.io.unicode.encoding" value="UnicodeLittle"/>
+    <property name="java.class.version" value="61.0"/>
+  </properties>
+  <testcase name="testConnectivity" classname="com.yourname.minisql.region.network.RegionServerTestDebug" time="0.07">
+    <system-out><![CDATA[
+=== setUp 开始 ===
+找到空闲端口: 44927
+创建 DatabaseManager，数据目录: /tmp/junit18427406906679708253
+创建 RegionServer，端口: 44927
+启动 RegionServer...
+等待服务器启动...
+  尝试连接 (attempt 1) 到端口 44927
+  连接成功！
+服务器已启动，端口: 44927
+=== setUp 完成 ===
+
+
+>>> 测试连接性 <<<
+尝试连接到 localhost:44927
+连接成功！
+>>> 测试通过 <<<
+
+
+=== tearDown 开始 ===
+停止 RegionServer...
+关闭 DatabaseManager...
+RegionServer 启动成功
+关闭线程池...
+=== tearDown 完成 ===
+
+]]></system-out>
+    <system-err><![CDATA[[main] INFO com.yourname.minisql.region.storage.WAL - WAL initialized at: /tmp/junit18427406906679708253/wal_0.log
+[main] INFO com.yourname.minisql.region.storage.LSMTreeEngine - Recovery complete. Active MemTable is clean. SSTable count: 0
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Catalog file not found. Creating a clean schema map.
+[pool-3-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Region server started on port 44927
+[pool-2-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:46102
+[pool-2-thread-2] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:46114
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Successfully saved catalog metadata with 0 tables.
+]]></system-err>
+  </testcase>
+  <testcase name="testCreateTable" classname="com.yourname.minisql.region.network.RegionServerTestDebug" time="0.051">
+    <system-out><![CDATA[
+=== setUp 开始 ===
+找到空闲端口: 45541
+创建 DatabaseManager，数据目录: /tmp/junit667041106603979006
+创建 RegionServer，端口: 45541
+启动 RegionServer...
+等待服务器启动...
+  尝试连接 (attempt 1) 到端口 45541
+  连接成功！
+服务器已启动，端口: 45541
+=== setUp 完成 ===
+
+
+>>> 测试 CREATE TABLE <<<
+发送 SQL: CREATE TABLE users (id STRING, name STRING, age INT)
+  [发送] 编码消息...
+  [发送] 消息长度: 74
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 72
+  [接收] 已读取响应数据
+  [接收] 响应内容: Table 'users' created successfully with 3 columns.
+收到响应: 'Table 'users' created successfully with 3 columns.'
+>>> 测试通过 <<<
+
+
+=== tearDown 开始 ===
+停止 RegionServer...
+关闭 DatabaseManager...
+RegionServer 启动成功
+关闭线程池...
+=== tearDown 完成 ===
+
+]]></system-out>
+    <system-err><![CDATA[[main] INFO com.yourname.minisql.region.storage.WAL - WAL initialized at: /tmp/junit667041106603979006/wal_0.log
+[main] INFO com.yourname.minisql.region.storage.LSMTreeEngine - Recovery complete. Active MemTable is clean. SSTable count: 0
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Catalog file not found. Creating a clean schema map.
+[pool-5-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Region server started on port 45541
+[pool-4-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:34378
+[pool-4-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:34380
+[pool-4-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: CREATE TABLE users (id STRING, name STRING, age INT)
+[pool-4-thread-1] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: CREATE TABLE users (id STRING, name STRING, age INT) -> ParsedSQL{type=CREATE_TABLE, table='users'}
+[pool-4-thread-1] INFO com.yourname.minisql.region.manager.DatabaseManager - Successfully saved catalog metadata with 1 tables.
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Successfully saved catalog metadata with 1 tables.
+]]></system-err>
+  </testcase>
+  <testcase name="testDelete" classname="com.yourname.minisql.region.network.RegionServerTestDebug" time="0.12">
+    <failure message="删除后不应找到数据，实际响应: Table not found: users ==&gt; expected: &lt;true&gt; but was: &lt;false&gt;" type="org.opentest4j.AssertionFailedError"><![CDATA[org.opentest4j.AssertionFailedError: 删除后不应找到数据，实际响应: Table not found: users ==> expected: <true> but was: <false>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertTrue.failNotTrue(AssertTrue.java:63)
+	at org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:36)
+	at org.junit.jupiter.api.Assertions.assertTrue(Assertions.java:214)
+	at com.yourname.minisql.region.network.RegionServerTestDebug.testDelete(RegionServerTestDebug.java:164)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+]]></failure>
+    <system-out><![CDATA[
+=== setUp 开始 ===
+找到空闲端口: 35415
+创建 DatabaseManager，数据目录: /tmp/junit11168148891510402225
+创建 RegionServer，端口: 35415
+启动 RegionServer...
+等待服务器启动...
+  尝试连接 (attempt 1) 到端口 35415
+  连接成功！
+服务器已启动，端口: 35415
+=== setUp 完成 ===
+
+
+>>> 测试 DELETE <<<
+步骤1: 创建表
+  [发送] 编码消息...
+  [发送] 消息长度: 40
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 63
+  [接收] 已读取响应数据
+  [接收] 响应内容: Error: No columns defined for table users
+步骤2: 插入数据
+  [发送] 编码消息...
+  [发送] 消息长度: 83
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 44
+  [接收] 已读取响应数据
+  [接收] 响应内容: Table not found: users
+步骤3: 删除数据
+发送 SQL: DELETE FROM users WHERE id = '1'
+  [发送] 编码消息...
+  [发送] 消息长度: 54
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 45
+  [接收] 已读取响应数据
+  [接收] 响应内容: Deleted row with key: 1
+删除响应: 'Deleted row with key: 1'
+步骤4: 验证删除
+  [发送] 编码消息...
+  [发送] 消息长度: 56
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 44
+  [接收] 已读取响应数据
+  [接收] 响应内容: Table not found: users
+查询响应: 'Table not found: users'
+
+=== tearDown 开始 ===
+停止 RegionServer...
+关闭 DatabaseManager...
+RegionServer 启动成功
+关闭线程池...
+=== tearDown 完成 ===
+
+]]></system-out>
+    <system-err><![CDATA[[main] INFO com.yourname.minisql.region.storage.WAL - WAL initialized at: /tmp/junit11168148891510402225/wal_0.log
+[main] INFO com.yourname.minisql.region.storage.LSMTreeEngine - Recovery complete. Active MemTable is clean. SSTable count: 0
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Catalog file not found. Creating a clean schema map.
+[pool-8-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Region server started on port 35415
+[pool-7-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:37220
+[pool-7-thread-2] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:37230
+[pool-7-thread-2] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: CREATE TABLE users
+[pool-7-thread-2] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: CREATE TABLE users -> ParsedSQL{type=CREATE_TABLE, table='users'}
+[pool-7-thread-2] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:37242
+[pool-7-thread-2] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: INSERT INTO users (id, name, age) VALUES ('1', 'Alice', '25')
+[pool-7-thread-2] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: INSERT INTO users (id, name, age) VALUES ('1', 'Alice', '25') -> ParsedSQL{type=INSERT, table='users'}
+[pool-7-thread-2] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:37244
+[pool-7-thread-2] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: DELETE FROM users WHERE id = '1'
+[pool-7-thread-2] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: DELETE FROM users WHERE id = '1' -> ParsedSQL{type=DELETE, table='users'}
+[pool-7-thread-2] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:37246
+[pool-7-thread-2] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: SELECT * FROM users WHERE id = '1'
+[pool-7-thread-2] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: SELECT * FROM users WHERE id = '1' -> ParsedSQL{type=SELECT, table='users'}
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Successfully saved catalog metadata with 0 tables.
+[main] INFO com.yourname.minisql.region.storage.LSMTreeEngine - Flushing MemTable to SSTable...
+[main] INFO com.yourname.minisql.region.storage.SSTable - Created SSTable 0 with 1 entries, size: 72 bytes
+[main] INFO com.yourname.minisql.region.storage.WAL - WAL initialized at: /tmp/junit11168148891510402225/wal_1.log
+[main] INFO com.yourname.minisql.region.storage.WAL - Deleted old WAL file: /tmp/junit11168148891510402225/wal_0.log
+[main] INFO com.yourname.minisql.region.storage.LSMTreeEngine - Flush complete. Current SSTable count: 1
+]]></system-err>
+  </testcase>
+  <testcase name="testInsert" classname="com.yourname.minisql.region.network.RegionServerTestDebug" time="0.008">
+    <failure message="插入应返回成功信息，实际响应: Table not found: users ==&gt; expected: &lt;true&gt; but was: &lt;false&gt;" type="org.opentest4j.AssertionFailedError"><![CDATA[org.opentest4j.AssertionFailedError: 插入应返回成功信息，实际响应: Table not found: users ==> expected: <true> but was: <false>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertTrue.failNotTrue(AssertTrue.java:63)
+	at org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:36)
+	at org.junit.jupiter.api.Assertions.assertTrue(Assertions.java:214)
+	at com.yourname.minisql.region.network.RegionServerTestDebug.testInsert(RegionServerTestDebug.java:112)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+]]></failure>
+    <system-out><![CDATA[
+=== setUp 开始 ===
+找到空闲端口: 44729
+创建 DatabaseManager，数据目录: /tmp/junit10241482951889210034
+创建 RegionServer，端口: 44729
+启动 RegionServer...
+等待服务器启动...
+  尝试连接 (attempt 1) 到端口 44729
+  连接成功！
+服务器已启动，端口: 44729
+=== setUp 完成 ===
+
+
+>>> 测试 INSERT <<<
+步骤1: 创建表
+  [发送] 编码消息...
+  [发送] 消息长度: 40
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 63
+  [接收] 已读取响应数据
+  [接收] 响应内容: Error: No columns defined for table users
+建表响应: Error: No columns defined for table users
+步骤2: 插入数据
+发送 SQL: INSERT INTO users (id, name, age) VALUES ('1', 'Alice', '25')
+  [发送] 编码消息...
+  [发送] 消息长度: 83
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 44
+  [接收] 已读取响应数据
+  [接收] 响应内容: Table not found: users
+收到响应: 'Table not found: users'
+
+=== tearDown 开始 ===
+停止 RegionServer...
+关闭 DatabaseManager...
+RegionServer 启动成功
+关闭线程池...
+=== tearDown 完成 ===
+
+]]></system-out>
+    <system-err><![CDATA[[main] INFO com.yourname.minisql.region.storage.WAL - WAL initialized at: /tmp/junit10241482951889210034/wal_0.log
+[main] INFO com.yourname.minisql.region.storage.LSMTreeEngine - Recovery complete. Active MemTable is clean. SSTable count: 0
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Catalog file not found. Creating a clean schema map.
+[pool-14-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Region server started on port 44729
+[pool-13-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:34650
+[pool-13-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:34652
+[pool-13-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: CREATE TABLE users
+[pool-13-thread-1] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: CREATE TABLE users -> ParsedSQL{type=CREATE_TABLE, table='users'}
+[pool-13-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:34662
+[pool-13-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: INSERT INTO users (id, name, age) VALUES ('1', 'Alice', '25')
+[pool-13-thread-1] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: INSERT INTO users (id, name, age) VALUES ('1', 'Alice', '25') -> ParsedSQL{type=INSERT, table='users'}
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Successfully saved catalog metadata with 0 tables.
+]]></system-err>
+  </testcase>
+  <testcase name="testSelect" classname="com.yourname.minisql.region.network.RegionServerTestDebug" time="0.019">
+    <failure message="响应应包含 &apos;Alice&apos;，实际响应: Table not found: users ==&gt; expected: &lt;true&gt; but was: &lt;false&gt;" type="org.opentest4j.AssertionFailedError"><![CDATA[org.opentest4j.AssertionFailedError: 响应应包含 'Alice'，实际响应: Table not found: users ==> expected: <true> but was: <false>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertTrue.failNotTrue(AssertTrue.java:63)
+	at org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:36)
+	at org.junit.jupiter.api.Assertions.assertTrue(Assertions.java:214)
+	at com.yourname.minisql.region.network.RegionServerTestDebug.testSelect(RegionServerTestDebug.java:137)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+]]></failure>
+    <system-out><![CDATA[
+=== setUp 开始 ===
+找到空闲端口: 45037
+创建 DatabaseManager，数据目录: /tmp/junit7610586963110580496
+创建 RegionServer，端口: 45037
+启动 RegionServer...
+等待服务器启动...
+  尝试连接 (attempt 1) 到端口 45037
+  连接成功！
+服务器已启动，端口: 45037
+=== setUp 完成 ===
+
+
+>>> 测试 SELECT <<<
+步骤1: 创建表
+  [发送] 编码消息...
+  [发送] 消息长度: 40
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 63
+  [接收] 已读取响应数据
+  [接收] 响应内容: Error: No columns defined for table users
+步骤2: 插入数据
+  [发送] 编码消息...
+  [发送] 消息长度: 83
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 44
+  [接收] 已读取响应数据
+  [接收] 响应内容: Table not found: users
+步骤3: 查询数据
+发送 SQL: SELECT * FROM users WHERE id = '1'
+  [发送] 编码消息...
+  [发送] 消息长度: 56
+  [发送] 已连接到服务器
+  [发送] 已发送请求
+  [接收] 等待响应...
+  [接收] 响应长度: 44
+  [接收] 已读取响应数据
+  [接收] 响应内容: Table not found: users
+收到响应: 'Table not found: users'
+
+=== tearDown 开始 ===
+停止 RegionServer...
+关闭 DatabaseManager...
+RegionServer 启动成功
+关闭线程池...
+=== tearDown 完成 ===
+
+]]></system-out>
+    <system-err><![CDATA[[main] INFO com.yourname.minisql.region.storage.WAL - WAL initialized at: /tmp/junit7610586963110580496/wal_0.log
+[main] INFO com.yourname.minisql.region.storage.LSMTreeEngine - Recovery complete. Active MemTable is clean. SSTable count: 0
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Catalog file not found. Creating a clean schema map.
+[pool-18-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Region server started on port 45037
+[pool-17-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:53086
+[pool-17-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:53088
+[pool-17-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: CREATE TABLE users
+[pool-17-thread-1] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: CREATE TABLE users -> ParsedSQL{type=CREATE_TABLE, table='users'}
+[pool-17-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:53094
+[pool-17-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: INSERT INTO users (id, name, age) VALUES ('1', 'Alice', '25')
+[pool-17-thread-1] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: INSERT INTO users (id, name, age) VALUES ('1', 'Alice', '25') -> ParsedSQL{type=INSERT, table='users'}
+[pool-17-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Client connected: /127.0.0.1:53108
+[pool-17-thread-1] INFO com.yourname.minisql.region.network.RegionServer - Executing SQL: SELECT * FROM users WHERE id = '1'
+[pool-17-thread-1] INFO com.yourname.minisql.region.manager.DatabaseManager - Executing: SELECT * FROM users WHERE id = '1' -> ParsedSQL{type=SELECT, table='users'}
+[main] INFO com.yourname.minisql.region.manager.DatabaseManager - Successfully saved catalog metadata with 0 tables.
+]]></system-err>
+  </testcase>
+</testsuite>

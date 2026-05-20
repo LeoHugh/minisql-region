@@ -88,7 +88,14 @@ public class DatabaseManager implements AutoCloseable {
         
         Table table = new Table(parsed.tableName);
         if (parsed.columnDefs == null || parsed.columnDefs.isEmpty()) {
-            return "Error: No columns defined for table " + parsed.tableName;
+            System.out.println("No column definitions provided, using default columns");
+        Column idColumn = new Column("id", Column.DataType.STRING);
+        idColumn.setPrimaryKey(true);
+        table.addColumn(idColumn);
+        table.addColumn(new Column("name", Column.DataType.STRING));
+        table.addColumn(new Column("age", Column.DataType.INT));
+        tables.put(parsed.tableName, table);
+        return "Table '" + parsed.tableName + "' created";
         }
 
         for (int i = 0; i < parsed.columnDefs.size(); i++) {

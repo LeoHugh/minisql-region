@@ -56,20 +56,22 @@ public class DatabaseManagerTest {
     }
 
     @Test
-    @DisplayName("测试数据更新功能")
-    public void testUpdate() {
-        // 先插入
-        db.execute("INSERT INTO students (id, name, age) VALUES ('1002', 'Charlie', '25')");
-        
-        // 执行更新
-        String updateRes = db.execute("UPDATE students SET age = '26' WHERE id = '1002'");
-        assertTrue(updateRes.contains("Updated row"), "更新操作应该成功");
+@DisplayName("测试数据更新功能")
+public void testUpdate() {
+    // 先插入
+    db.execute("INSERT INTO students (id, name, age) VALUES ('1002', 'Charlie', '25')");
+    
+    // 执行更新
+    String updateRes = db.execute("UPDATE students SET age = '26' WHERE id = '1002'");
+    assertTrue(updateRes.contains("Updated row"), "更新操作应该成功");
 
-        // 验证更新结果
-        String selectRes = db.execute("SELECT * FROM students WHERE id = '1002'");
-        assertTrue(selectRes.contains("26"), "年龄应该被更新为 26");
-        assertFalse(selectRes.contains("25"), "旧年龄 25 不该存在了");
-    }
+    // 验证更新结果
+    String selectRes = db.execute("SELECT * FROM students WHERE id = '1002'");
+    
+    // 修改断言：只检查 age 字段的值，而不是整个字符串
+    assertTrue(selectRes.contains("age=26"), "年龄应该被更新为 26");
+    assertFalse(selectRes.contains("age=25"), "旧年龄 25 不该存在了");
+}
 
     @Test
     @DisplayName("测试墓碑删除机制")

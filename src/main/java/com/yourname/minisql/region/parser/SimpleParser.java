@@ -82,11 +82,13 @@ public class SimpleParser {
         
         result.columnDefs = new ArrayList<>();
         // 获取括号里的列定义列表
-        for (ColumnDefinition colDef : createTable.getColumnDefinitions()) {
-            result.columnDefs.add(new ColumnDef(
-                    colDef.getColumnName(),
-                    colDef.getColDataType().getDataType()
-            ));
+        if (createTable.getColumnDefinitions() != null) {
+            for (ColumnDefinition colDef : createTable.getColumnDefinitions()) {
+                result.columnDefs.add(new ColumnDef(
+                        colDef.getColumnName(),
+                        colDef.getColDataType().getDataType()
+                ));
+            }
         }
     }
 

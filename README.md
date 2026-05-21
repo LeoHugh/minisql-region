@@ -21,8 +21,8 @@ mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.client.Client"
 
 ## Zookeeper 集群化与动态上下线
 cd /zookeeper
-./bin/zkServer.sh start
-./bin/zkServer.sh stop
+./zookeeper/bin/zkServer.sh start
+./zookeeper/bin/zkServer.sh stop
 mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.master.MasterServer"
 mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8888"
 mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8889"

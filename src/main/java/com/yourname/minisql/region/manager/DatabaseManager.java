@@ -17,6 +17,7 @@ public class DatabaseManager implements AutoCloseable {
     private final SimpleParser parser;
     private final ConcurrentHashMap<String, Table> tables;
     private final String catalogPath; // 元数据存储路径
+    private com.yourname.minisql.region.replication.ReplicationManager replicationManager;
 
     public DatabaseManager(String dataDir) throws IOException {
         this.storage = new LSMTreeEngine(dataDir);
@@ -55,23 +56,47 @@ public class DatabaseManager implements AutoCloseable {
             log.error("Failed to save catalog metadata", e);
         }
     }
+    
+    public void setReplicationManager(com.yourname.minisql.region.replication.ReplicationManager manager) {
+        this.replicationManager = manager;
+    }
 
+    public LSMTreeEngine getStorage() {
+    return this.storage;
+}
     public String execute(String sql) {
         try {
             SimpleParser.ParsedSQL parsed = parser.parse(sql);
             log.info("Executing: {} -> {}", sql, parsed);
             
+            String result;
             switch (parsed.type) {
                 case CREATE_TABLE:
-                    return createTable(parsed);
+                    result = createTable(parsed);
+                    if (replicationManager != null && !result.startsWith("Error") && !result.startsWith("Table '") || result.contains("created")) {
+                        replicationManager.replicateSQL(sql);
+                    }
+                    return result;
                 case INSERT:
-                    return insert(parsed);
+                    result = insert(parsed);
+                    if (replicationManager != null && result.startsWith("Inserted")) {
+                        replicationManager.replicateSQL(sql);
+                    }
+                    return result;
                 case SELECT:
                     return select(parsed);
                 case DELETE:
-                    return delete(parsed);
+                    result = delete(parsed);
+                    if (replicationManager != null && result.startsWith("Deleted")) {
+                        replicationManager.replicateSQL(sql);
+                    }
+                    return result;
                 case UPDATE:
-                    return update(parsed);
+                    result = update(parsed);
+                    if (replicationManager != null && result.startsWith("Updated")) {
+                        replicationManager.replicateSQL(sql);
+                    }
+                    return result;
                 default:
                     return "Unknown SQL command: " + sql;
             }

@@ -149,9 +149,12 @@ public class ZkClientManager implements Closeable {
     }
     
     @Override
-    public void close() throws IOException {
+    public synchronized void close() throws IOException {
         if (client != null) {
             client.close();
+            initialized = false;
+            client = null;
+            instance = null;
             log.info("Zookeeper client closed");
         }
     }

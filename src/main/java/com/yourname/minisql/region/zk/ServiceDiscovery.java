@@ -66,57 +66,195 @@ public class ServiceDiscovery implements Closeable {
     }
     
     /**
-     * 监听 Region 节点变化
-     */
-    private void watchRegions() throws Exception {
-        CuratorFramework client = zkClient.getClient();
-        String watchPath = ZkConfig.ZK_REGIONS_PATH;
-        
-        cache = CuratorCache.build(client, watchPath);
-        cache.listenable().addListener(CuratorCacheListener.builder()
-            .forCreates(node -> {
-                String path = node.getPath();
-                String nodeName = path.substring(path.lastIndexOf('/') + 1);
-                if (node.getData() != null) {
-                    ZkConfig.RegionData regionData = JSON.parseObject(node.getData(), ZkConfig.RegionData.class);
+ * 监听 Region 节点变化
+ */
+private void watchRegions() throws Exception {
+    CuratorFramework client = zkClient.getClient();
+    String watchPath = ZkConfig.ZK_REGIONS_PATH;
+    
+    cache = CuratorCache.build(client, watchPath);
+    cache.listenable().addListener(CuratorCacheListener.builder()
+        .forCreates(node -> {
+            String path = node.getPath();
+            String nodeName = path.substring(path.lastIndexOf('/') + 1);
+            byte[] data = node.getData();
+            if (data != null && data.length > 0) {
+                ZkConfig.RegionData regionData = parseRegionData(data);
+                if (regionData != null) {
                     onlineRegions.add(regionData);
                     log.info("Region online: {} -> {}", nodeName, regionData);
                     notifyListeners(regionData, true);
+                } else {
+                    log.warn("Failed to parse region data from node: {}, data: {}", 
+                             nodeName, new String(data));
                 }
-            })
-            .forDeletes(node -> {
-                String path = node.getPath();
-                String nodeName = path.substring(path.lastIndexOf('/') + 1);
-                // 需要从数据中获取地址，这里简化处理
-                ZkConfig.RegionData removed = onlineRegions.stream()
-                    .filter(r -> path.contains(String.valueOf(r.getPort())))
-                    .findFirst()
-                    .orElse(null);
-                if (removed != null) {
-                    onlineRegions.remove(removed);
-                    log.info("Region offline: {} -> {}", nodeName, removed);
-                    notifyListeners(removed, false);
+            }
+        })
+        .forDeletes(node -> {
+            String path = node.getPath();
+            String nodeName = path.substring(path.lastIndexOf('/') + 1);
+            // 需要从数据中获取地址，这里简化处理
+            ZkConfig.RegionData removed = onlineRegions.stream()
+                .filter(r -> path.contains(String.valueOf(r.getPort())))
+                .findFirst()
+                .orElse(null);
+            if (removed != null) {
+                onlineRegions.remove(removed);
+                log.info("Region offline: {} -> {}", nodeName, removed);
+                notifyListeners(removed, false);
+            } else {
+                // 如果找不到，尝试从路径中提取端口
+                try {
+                    String portStr = nodeName.replaceAll("\\D+", "");
+                    if (!portStr.isEmpty()) {
+                        int port = Integer.parseInt(portStr);
+                        ZkConfig.RegionData fallback = new ZkConfig.RegionData();
+                        fallback.setHost("localhost");
+                        fallback.setPort(port);
+                        fallback.setStatus("offline");
+                        log.info("Region offline (fallback): {} -> {}", nodeName, fallback);
+                        notifyListeners(fallback, false);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to extract port from node: {}", nodeName);
                 }
-            })
-            .forChanges((oldNode, newNode) -> {
-                if (newNode != null && newNode.getData() != null) {
-                    ZkConfig.RegionData newData = JSON.parseObject(newNode.getData(), ZkConfig.RegionData.class);
+            }
+        })
+        .forChanges((oldNode, newNode) -> {
+            if (newNode != null && newNode.getData() != null && newNode.getData().length > 0) {
+                ZkConfig.RegionData newData = parseRegionData(newNode.getData());
+                if (newData != null) {
                     // 更新列表中对应的 Region
+                    boolean found = false;
                     for (int i = 0; i < onlineRegions.size(); i++) {
                         if (onlineRegions.get(i).getPort() == newData.getPort()) {
                             onlineRegions.set(i, newData);
+                            found = true;
                             break;
                         }
                     }
+                    if (!found) {
+                        onlineRegions.add(newData);
+                    }
                     log.info("Region updated: {}", newData);
+                    notifyListeners(newData, true);
                 }
-            })
-            .build()
-        );
-        cache.start();
-        
-        log.info("Started watching regions at: {}", watchPath);
+            }
+        })
+        .build()
+    );
+    cache.start();
+    
+    log.info("Started watching regions at: {}", watchPath);
+}
+
+/**
+ * 解析 Region 数据，兼容 JSON 和纯地址格式
+ * @param data 原始字节数据
+ * @return RegionData 对象，解析失败返回 null
+ */
+private ZkConfig.RegionData parseRegionData(byte[] data) {
+    if (data == null || data.length == 0) {
+        return null;
     }
+    
+    String dataStr = new String(data);
+    log.debug("Parsing region data: {}", dataStr);
+    
+    // 方法1：尝试解析 JSON
+    if (dataStr.trim().startsWith("{")) {
+        try {
+            ZkConfig.RegionData regionData = JSON.parseObject(dataStr, ZkConfig.RegionData.class);
+            if (regionData != null && regionData.getPort() > 0) {
+                log.debug("Parsed as JSON: {}", regionData);
+                return regionData;
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse as JSON: {}", e.getMessage());
+        }
+    }
+    
+    // 方法2：尝试解析为地址格式 "host:port"
+    if (dataStr.contains(":")) {
+        try {
+            String[] parts = dataStr.split(":");
+            if (parts.length >= 2) {
+                String host = parts[0];
+                int port = Integer.parseInt(parts[1].trim());
+                ZkConfig.RegionData regionData = new ZkConfig.RegionData();
+                regionData.setHost(host);
+                regionData.setPort(port);
+                regionData.setStatus("online");
+                regionData.setTimestamp(System.currentTimeMillis());
+                log.debug("Parsed as address: {}", regionData);
+                return regionData;
+            }
+        } catch (NumberFormatException e) {
+            log.debug("Failed to parse port from: {}", dataStr);
+        }
+    }
+    
+    // 方法3：尝试从 JSON-like 字符串中提取（兼容损坏的 JSON）
+    try {
+        // 尝试提取 host
+        String host = extractValue(dataStr, "host");
+        String portStr = extractValue(dataStr, "port");
+        if (host != null && portStr != null) {
+            int port = Integer.parseInt(portStr);
+            ZkConfig.RegionData regionData = new ZkConfig.RegionData();
+            regionData.setHost(host);
+            regionData.setPort(port);
+            regionData.setStatus(extractValue(dataStr, "status"));
+            if (regionData.getStatus() == null) {
+                regionData.setStatus("online");
+            }
+            log.debug("Extracted from JSON-like: {}", regionData);
+            return regionData;
+        }
+    } catch (Exception e) {
+        log.debug("Failed to extract from JSON-like: {}", e.getMessage());
+    }
+    
+    log.warn("Could not parse region data: {}", dataStr);
+    return null;
+}
+
+/**
+ * 从 JSON-like 字符串中提取值
+ */
+private String extractValue(String json, String key) {
+    String searchKey = "\"" + key + "\"";
+    int keyIndex = json.indexOf(searchKey);
+    if (keyIndex < 0) {
+        return null;
+    }
+    
+    int colonIndex = json.indexOf(":", keyIndex);
+    if (colonIndex < 0) {
+        return null;
+    }
+    
+    int valueStart = colonIndex + 1;
+    while (valueStart < json.length() && (json.charAt(valueStart) == ' ' || json.charAt(valueStart) == '"')) {
+        valueStart++;
+    }
+    
+    int valueEnd = valueStart;
+    if (json.charAt(valueStart) == '"') {
+        valueStart++;
+        valueEnd = json.indexOf("\"", valueStart);
+    } else {
+        while (valueEnd < json.length() && json.charAt(valueEnd) != ',' && json.charAt(valueEnd) != '}') {
+            valueEnd++;
+        }
+    }
+    
+    if (valueEnd > valueStart) {
+        return json.substring(valueStart, valueEnd);
+    }
+    
+    return null;
+}
     
     /**
      * 获取所有在线 Region

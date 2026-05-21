@@ -30,3 +30,6 @@ mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.client.Client"
 ## 主从复制与文件传输
 
 ## 容错容灾与负载均衡
+
+
+mvn test -Dtest=HATest

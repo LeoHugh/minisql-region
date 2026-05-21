@@ -1,6 +1,12 @@
 package com.yourname.minisql.region.zk;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.alibaba.fastjson2.JSON;
+
 public class ZkConfig {
+    private static final Logger log = LoggerFactory.getLogger(ZkConfig.class);
+    
     // Zookeeper 连接地址（单机版，集群用逗号分隔）
     public static final String ZK_CONNECT_STRING = "localhost:2181";
     
@@ -25,6 +31,36 @@ public class ZkConfig {
     // 最大重试次数
     public static final int MAX_RETRIES = 3;
     
+    /**
+     * 获取当前使用的 Region 路径（根据测试模式自动切换）
+     */
+    public static String getRegionsPath() {
+        if (TestConfig.isTestMode) {
+            return TestConfig.TEST_ZK_REGIONS_PATH;
+        }
+        return ZK_REGIONS_PATH;
+    }
+    
+    /**
+     * 获取当前使用的 Master 路径
+     */
+    public static String getMasterPath() {
+        if (TestConfig.isTestMode) {
+            return TestConfig.TEST_ZK_MASTER_PATH;
+        }
+        return ZK_MASTER_PATH;
+    }
+    
+    /**
+     * 获取当前使用的 Base 路径
+     */
+    public static String getBasePath() {
+        if (TestConfig.isTestMode) {
+            return TestConfig.TEST_ZK_BASE_PATH;
+        }
+        return ZK_BASE_PATH;
+    }
+    
     // 测试环境专用配置
     public static class TestConfig {
         public static final String TEST_ZK_CONNECT_STRING = "localhost:2181";
@@ -35,7 +71,16 @@ public class ZkConfig {
         public static final int TEST_CONNECTION_TIMEOUT_MS = 3000;
         
         // 测试专用标志，用于隔离测试数据
-        public static boolean isTestMode = false;
+        public static volatile boolean isTestMode = false;
+        
+        // 测试端口范围（避免冲突）
+        public static int getTestMasterPort(int index) {
+            return 19000 + index;
+        }
+        
+        public static int getTestRegionPort(int index) {
+            return 18800 + index;
+        }
     }
     
     // 节点数据编码（JSON 格式）
@@ -68,10 +113,96 @@ public class ZkConfig {
             return host + ":" + port;
         }
         
+        /**
+         * 将 RegionData 转换为 JSON 字节数组
+         */
+        public byte[] toBytes() {
+            return JSON.toJSONBytes(this);
+        }
+        
+        /**
+         * 从字节数组解析 RegionData（支持 JSON 和纯地址格式）
+         * @param data 字节数组
+         * @return RegionData 对象，解析失败返回 null
+         */
+        public static RegionData fromBytes(byte[] data) {
+            if (data == null || data.length == 0) {
+                log.debug("Cannot parse null or empty data");
+                return null;
+            }
+            
+            String str = new String(data);
+            log.debug("Parsing region data: {}", str);
+            
+            // 尝试解析 JSON 格式
+            if (str.trim().startsWith("{")) {
+                try {
+                    RegionData region = JSON.parseObject(str, RegionData.class);
+                    log.debug("Parsed JSON region data: {}", region);
+                    return region;
+                } catch (Exception e) {
+                    log.warn("Failed to parse JSON region data: {}", str, e);
+                }
+            }
+            
+            // 兼容旧格式：纯地址字符串 "host:port"
+            if (str.contains(":")) {
+                String[] parts = str.split(":");
+                if (parts.length >= 2) {
+                    try {
+                        RegionData region = new RegionData();
+                        region.setHost(parts[0]);
+                        region.setPort(Integer.parseInt(parts[1].trim()));
+                        region.setStatus("online");
+                        region.setTimestamp(System.currentTimeMillis());
+                        log.debug("Parsed address format region data: {}", region);
+                        return region;
+                    } catch (NumberFormatException e) {
+                        log.warn("Failed to parse port from: {}", parts[1]);
+                    }
+                }
+            }
+            
+            // 尝试提取 IP 和端口（处理 "127.0.1.1" 这种特殊格式）
+            // 匹配 IPv4 地址:端口格式
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|localhost):(\\d+)");
+            java.util.regex.Matcher matcher = pattern.matcher(str);
+            if (matcher.find()) {
+                try {
+                    RegionData region = new RegionData();
+                    region.setHost(matcher.group(1));
+                    region.setPort(Integer.parseInt(matcher.group(2)));
+                    region.setStatus("online");
+                    region.setTimestamp(System.currentTimeMillis());
+                    log.debug("Parsed regex format region data: {}", region);
+                    return region;
+                } catch (NumberFormatException e) {
+                    log.warn("Failed to parse port from regex match");
+                }
+            }
+            
+            log.warn("Failed to parse region data: {}", str);
+            return null;
+        }
+        
         @Override
         public String toString() {
-            return String.format("RegionData{host='%s', port=%d, status='%s'}", 
-                               host, port, status);
+            return String.format("RegionData{host='%s', port=%d, status='%s', timestamp=%d}", 
+                               host, port, status, timestamp);
+        }
+        
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (obj == null || getClass() != obj.getClass()) return false;
+            RegionData that = (RegionData) obj;
+            return port == that.port && host.equals(that.host);
+        }
+        
+        @Override
+        public int hashCode() {
+            return 31 * host.hashCode() + port;
         }
     }
 }

@@ -16,19 +16,16 @@ public class DatabaseManager implements AutoCloseable {
     private final LSMTreeEngine storage;
     private final SimpleParser parser;
     private final ConcurrentHashMap<String, Table> tables;
-    private final String catalogPath; // 元数据存储路径
+    private final String catalogPath;
     private com.yourname.minisql.region.replication.ReplicationManager replicationManager;
 
     public DatabaseManager(String dataDir) throws IOException {
         this.storage = new LSMTreeEngine(dataDir);
         this.parser = new SimpleParser();
         this.catalogPath = dataDir + "/catalog.meta";
-        
-        // 【核心改进】：不再单单 new 出来，而是尝试从磁盘加载历史表结构
         this.tables = loadCatalog();
     }
     
-    // 【核心新增】：从磁盘反序列化加载 Catalog
     @SuppressWarnings("unchecked")
     private ConcurrentHashMap<String, Table> loadCatalog() {
         File file = new File(catalogPath);
@@ -47,7 +44,6 @@ public class DatabaseManager implements AutoCloseable {
         }
     }
 
-    // 【核心新增】：把当前所有的表结构持久化写到磁盘
     private void saveCatalog() {
         try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(catalogPath))) {
             oos.writeObject(tables);
@@ -59,47 +55,66 @@ public class DatabaseManager implements AutoCloseable {
     
     public void setReplicationManager(com.yourname.minisql.region.replication.ReplicationManager manager) {
         this.replicationManager = manager;
+        log.info("ReplicationManager set to DatabaseManager");
     }
 
     public LSMTreeEngine getStorage() {
-    return this.storage;
-}
+        return this.storage;
+    }
+    
     public String execute(String sql) {
         try {
             SimpleParser.ParsedSQL parsed = parser.parse(sql);
             log.info("Executing: {} -> {}", sql, parsed);
             
             String result;
+            boolean shouldReplicate = false;
+            
             switch (parsed.type) {
                 case CREATE_TABLE:
                     result = createTable(parsed);
-                    if (replicationManager != null && !result.startsWith("Error") && !result.startsWith("Table '") || result.contains("created")) {
-                        replicationManager.replicateSQL(sql);
-                    }
-                    return result;
+                    // 修复：建表成功时复制（不包含错误信息）
+                    shouldReplicate = result.contains("created successfully") || result.contains("created");
+                    break;
+                    
                 case INSERT:
                     result = insert(parsed);
-                    if (replicationManager != null && result.startsWith("Inserted")) {
-                        replicationManager.replicateSQL(sql);
-                    }
-                    return result;
+                    shouldReplicate = result.startsWith("Inserted row");
+                    break;
+                    
                 case SELECT:
                     return select(parsed);
+                    
                 case DELETE:
                     result = delete(parsed);
-                    if (replicationManager != null && result.startsWith("Deleted")) {
-                        replicationManager.replicateSQL(sql);
-                    }
-                    return result;
+                    shouldReplicate = result.startsWith("Deleted row");
+                    break;
+                    
                 case UPDATE:
                     result = update(parsed);
-                    if (replicationManager != null && result.startsWith("Updated")) {
-                        replicationManager.replicateSQL(sql);
-                    }
-                    return result;
+                    shouldReplicate = result.startsWith("Updated row");
+                    break;
+                    
                 default:
                     return "Unknown SQL command: " + sql;
             }
+            
+            // 修复：清晰的复制逻辑
+            if (shouldReplicate && replicationManager != null) {
+                try {
+                    // 注意：检查方法名是否正确
+                    replicationManager.replicateSQL(sql);
+                    log.debug("SQL replicated successfully: {}", sql);
+                } catch (Exception e) {
+                    log.error("Failed to replicate SQL: {}", sql, e);
+                    // 复制失败不影响主流程，继续返回结果
+                }
+            } else if (shouldReplicate && replicationManager == null) {
+                log.debug("ReplicationManager is null, skipping replication for: {}", sql);
+            }
+            
+            return result;
+            
         } catch (Exception e) {
             log.error("Failed to execute SQL: {}", sql, e);
             return "Error: " + e.getMessage();
@@ -108,47 +123,46 @@ public class DatabaseManager implements AutoCloseable {
     
     private String createTable(SimpleParser.ParsedSQL parsed) {
         if (tables.containsKey(parsed.tableName)) {
-            return "Table '" + parsed.tableName + "' already exists.";
+            return "Error: Table '" + parsed.tableName + "' already exists.";
         }
         
         Table table = new Table(parsed.tableName);
+        
         if (parsed.columnDefs == null || parsed.columnDefs.isEmpty()) {
-            System.out.println("No column definitions provided, using default columns");
-        Column idColumn = new Column("id", Column.DataType.STRING);
-        idColumn.setPrimaryKey(true);
-        table.addColumn(idColumn);
-        table.addColumn(new Column("name", Column.DataType.STRING));
-        table.addColumn(new Column("age", Column.DataType.INT));
-        tables.put(parsed.tableName, table);
-        return "Table '" + parsed.tableName + "' created";
-        }
-
-        for (int i = 0; i < parsed.columnDefs.size(); i++) {
-            SimpleParser.ColumnDef def = parsed.columnDefs.get(i);
-            Column.DataType type = Column.DataType.STRING;
-            if (def.type.toUpperCase().contains("INT")) {
-                type = Column.DataType.INT;
-            } else if (def.type.toUpperCase().contains("DOUBLE")) {
-                type = Column.DataType.DOUBLE;
+            log.info("No column definitions provided, using default columns");
+            Column idColumn = new Column("id", Column.DataType.STRING);
+            idColumn.setPrimaryKey(true);
+            table.addColumn(idColumn);
+            table.addColumn(new Column("name", Column.DataType.STRING));
+            table.addColumn(new Column("age", Column.DataType.INT));
+        } else {
+            for (int i = 0; i < parsed.columnDefs.size(); i++) {
+                SimpleParser.ColumnDef def = parsed.columnDefs.get(i);
+                Column.DataType type = Column.DataType.STRING;
+                if (def.type.toUpperCase().contains("INT")) {
+                    type = Column.DataType.INT;
+                } else if (def.type.toUpperCase().contains("DOUBLE")) {
+                    type = Column.DataType.DOUBLE;
+                }
+                
+                Column column = new Column(def.name, type);
+                if (i == 0) {
+                    column.setPrimaryKey(true);
+                }
+                table.addColumn(column);
             }
-            
-            Column column = new Column(def.name, type);
-            if (i == 0) {
-                column.setPrimaryKey(true);
-            }
-            table.addColumn(column);
         }
         
         tables.put(parsed.tableName, table);
-        // 【核心触发】：建表后自动保存元数据
-        saveCatalog(); 
-        return "Table '" + parsed.tableName + "' created successfully with " + parsed.columnDefs.size() + " columns.";
+        saveCatalog();
+        return "Table '" + parsed.tableName + "' created successfully with " + 
+               table.getColumns().size() + " columns.";
     }
     
     private String insert(SimpleParser.ParsedSQL parsed) throws IOException {
         Table table = tables.get(parsed.tableName);
         if (table == null) {
-            return "Table not found: " + parsed.tableName;
+            return "Error: Table not found: " + parsed.tableName;
         }
         
         Row row = new Row();
@@ -158,7 +172,7 @@ public class DatabaseManager implements AutoCloseable {
         
         String primaryKey = (String) row.get(table.getPrimaryKeyColumn());
         if (primaryKey == null) {
-            return "Primary key is required.";
+            return "Error: Primary key is required.";
         }
         
         storage.put(primaryKey.getBytes(), row);
@@ -168,7 +182,7 @@ public class DatabaseManager implements AutoCloseable {
     private String select(SimpleParser.ParsedSQL parsed) throws IOException {
         Table table = tables.get(parsed.tableName);
         if (table == null) {
-            return "Table not found: " + parsed.tableName;
+            return "Error: Table not found: " + parsed.tableName;
         }
         
         if (parsed.primaryKeyValue != null) {
@@ -187,17 +201,17 @@ public class DatabaseManager implements AutoCloseable {
             storage.delete(parsed.primaryKeyValue.getBytes());
             return "Deleted row with key: " + parsed.primaryKeyValue;
         }
-        return "Only delete by primary key is supported";
+        return "Error: Only delete by primary key is supported";
     }
     
     private String update(SimpleParser.ParsedSQL parsed) throws IOException {
         if (parsed.primaryKeyValue == null) {
-            return "Only update by primary key is supported";
+            return "Error: Only update by primary key is supported";
         }
         
         Row originalRow = storage.get(parsed.primaryKeyValue.getBytes());
         if (originalRow == null) {
-            return "No row found with key: " + parsed.primaryKeyValue;
+            return "Error: No row found with key: " + parsed.primaryKeyValue;
         }
         
         for (Map.Entry<String, Object> entry : parsed.values.entrySet()) {
@@ -225,8 +239,7 @@ public class DatabaseManager implements AutoCloseable {
     
     @Override
     public void close() throws IOException {
-        // 【核心改进】：在数据库优雅关闭前，必须强制把最新的元数据安全写回磁盘
-        saveCatalog(); 
+        saveCatalog();
         storage.close();
     }
 }

@@ -49,7 +49,7 @@ public class ServiceDiscovery implements Closeable {
     }
     
     /**
-     * 加载已存在的 Region
+     * 加载已存在的 Region，并通知监听器
      */
     private void loadExistingRegions() throws Exception {
         List<String> children = zkClient.getChildren(ZkConfig.ZK_REGIONS_PATH);
@@ -57,9 +57,13 @@ public class ServiceDiscovery implements Closeable {
             String path = ZkConfig.ZK_REGIONS_PATH + "/" + child;
             byte[] data = zkClient.getNodeData(path);
             if (data != null && data.length > 0) {
-                ZkConfig.RegionData regionData = JSON.parseObject(data, ZkConfig.RegionData.class);
-                onlineRegions.add(regionData);
-                log.info("Loaded existing region: {} -> {}", child, regionData);
+                ZkConfig.RegionData regionData = parseRegionData(data);
+                if (regionData != null) {
+                    onlineRegions.add(regionData);
+                    log.info("Loaded existing region: {} -> {}", child, regionData);
+                    // 通知监听器（如 RegionFailover），使其获知已有节点
+                    notifyListeners(regionData, true);
+                }
             }
         }
         log.info("Loaded {} existing regions", onlineRegions.size());
@@ -76,14 +80,25 @@ private void watchRegions() throws Exception {
     cache.listenable().addListener(CuratorCacheListener.builder()
         .forCreates(node -> {
             String path = node.getPath();
+            // 跳过父路径节点本身
+            if (path.equals(watchPath)) return;
             String nodeName = path.substring(path.lastIndexOf('/') + 1);
             byte[] data = node.getData();
             if (data != null && data.length > 0) {
                 ZkConfig.RegionData regionData = parseRegionData(data);
                 if (regionData != null) {
-                    onlineRegions.add(regionData);
-                    log.info("Region online: {} -> {}", nodeName, regionData);
-                    notifyListeners(regionData, true);
+                    // 防止与 loadExistingRegions() 重复添加
+                    boolean exists = onlineRegions.stream()
+                        .anyMatch(r -> r.getHost().equals(regionData.getHost()) 
+                                    && r.getPort() == regionData.getPort());
+                    if (!exists) {
+                        onlineRegions.add(regionData);
+                        log.info("Region online: {} -> {}", nodeName, regionData);
+                        notifyListeners(regionData, true);
+                    } else {
+                        log.debug("Region already loaded, skipping CuratorCache event: {} -> {}", 
+                                 nodeName, regionData);
+                    }
                 } else {
                     log.warn("Failed to parse region data from node: {}, data: {}", 
                              nodeName, new String(data));

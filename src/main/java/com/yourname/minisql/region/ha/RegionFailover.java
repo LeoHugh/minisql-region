@@ -1,9 +1,7 @@
 package com.yourname.minisql.region.ha;
 
+import com.yourname.minisql.region.zk.ServiceDiscovery;
 import com.yourname.minisql.region.zk.ZkConfig;
-import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.framework.recipes.cache.CuratorCache;
-import org.apache.curator.framework.recipes.cache.CuratorCacheListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,11 +13,14 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Region 故障检测与自动切换
+ * 
+ * 通过实现 ServiceDiscovery.RegionChangeListener 复用 ServiceDiscovery 的 ZK 监听，
+ * 避免重复创建 CuratorCache。自身专注于 TCP 主动健康检查（可在 ZK 临时节点过期前
+ * 提前发现 Region 进程假死）。
  */
-public class RegionFailover {
+public class RegionFailover implements ServiceDiscovery.RegionChangeListener {
     private static final Logger log = LoggerFactory.getLogger(RegionFailover.class);
     
-    private final CuratorFramework zkClient;
     private final Map<String, RegionHealth> regionHealthMap = new ConcurrentHashMap<>();
     private final ScheduledExecutorService healthChecker;
     private final FailoverListener failoverListener;
@@ -35,49 +36,54 @@ public class RegionFailover {
         void onFailoverCompleted(String fromRegion, String toRegion); // 切换完成
     }
     
-    public RegionFailover(CuratorFramework zkClient, FailoverListener listener) {
-        this.zkClient = zkClient;
+    public RegionFailover(FailoverListener listener) {
         this.failoverListener = listener;
         this.healthChecker = Executors.newSingleThreadScheduledExecutor();
     }
     
-    public void start() throws Exception {
-        // 监听 Region 节点变化
-        watchRegionNodes();
-        
-        // 定期健康检查
+    /**
+     * 启动健康检查定时任务
+     */
+    public void start() {
         healthChecker.scheduleAtFixedRate(this::healthCheck, 
             HEALTH_CHECK_INTERVAL_SEC, HEALTH_CHECK_INTERVAL_SEC, TimeUnit.SECONDS);
-        
-        log.info("Region failover started");
+        log.info("Region failover started (health check interval: {}s)", HEALTH_CHECK_INTERVAL_SEC);
     }
     
     public void stop() {
         healthChecker.shutdown();
+        regionHealthMap.clear();
         log.info("Region failover stopped");
     }
     
-    private void watchRegionNodes() throws Exception {
-        String path = ZkConfig.ZK_REGIONS_PATH;
-        CuratorCache cache = CuratorCache.build(zkClient, path);
-        cache.listenable().addListener(CuratorCacheListener.builder()
-            .forDeletes(node -> {
-                String nodePath = node.getPath();
-                String regionId = extractRegionId(nodePath);
-                if (regionId != null) {
-                    RegionHealth health = regionHealthMap.remove(regionId);
-                    if (health != null && health.isHealthy()) {
-                        log.warn("Region node deleted: {}", regionId);
-                        if (failoverListener != null) {
-                            failoverListener.onRegionFailed(regionId, health.getAddress());
-                        }
-                    }
-                }
-            })
-            .build()
-        );
-        cache.start();
+    // ========== ServiceDiscovery.RegionChangeListener 实现 ==========
+    
+    /**
+     * 当 ServiceDiscovery 感知到 Region 上线时，自动注册到健康检查列表
+     */
+    @Override
+    public void onRegionOnline(ZkConfig.RegionData region) {
+        String regionId = region.getHost() + ":" + region.getPort();
+        String address = region.getAddress();
+        registerRegion(regionId, address);
     }
+    
+    /**
+     * 当 ServiceDiscovery 感知到 Region 下线时（ZK 节点被删除），
+     * 从健康检查列表中移除。
+     * 注：此处不再触发 onRegionFailed，因为 MasterServer 的 ServiceDiscovery 监听器
+     * 已经通过 loadBalancer.removeRegion() 处理了路由移除。
+     */
+    @Override
+    public void onRegionOffline(ZkConfig.RegionData region) {
+        String regionId = region.getHost() + ":" + region.getPort();
+        RegionHealth health = regionHealthMap.remove(regionId);
+        if (health != null) {
+            log.info("Region removed from health check: {} ({})", regionId, health.getAddress());
+        }
+    }
+    
+    // ========== 主动 TCP 健康检查（RegionFailover 的核心价值） ==========
     
     private void healthCheck() {
         for (Map.Entry<String, RegionHealth> entry : regionHealthMap.entrySet()) {
@@ -121,9 +127,23 @@ public class RegionFailover {
         }
     }
     
+    /**
+     * 注册 Region 到健康检查列表
+     */
     public void registerRegion(String regionId, String address) {
+        if (regionHealthMap.containsKey(regionId)) {
+            log.debug("Region already registered for health check: {}", regionId);
+            return;
+        }
         regionHealthMap.put(regionId, new RegionHealth(regionId, address));
-        log.info("Registered region: {} -> {}", regionId, address);
+        log.info("Registered region for health check: {} -> {}", regionId, address);
+    }
+    
+    /**
+     * 获取当前监控的 Region 数量
+     */
+    public int getMonitoredRegionCount() {
+        return regionHealthMap.size();
     }
     
     private String extractRegionId(String nodePath) {

@@ -74,7 +74,7 @@ public class HAMasterServer {
         }
         
         try {
-            masterServer = new MasterServer(port);
+            masterServer = new MasterServer(port, loadBalancer);
             
             // 写入 Active Master 地址到 ZK
             String activeMasterAddr = getLocalHostAddress() + ":" + port;
@@ -92,10 +92,9 @@ public class HAMasterServer {
                 log.error("Failed to register active master in ZK", e);
             }
             
-            // 启动 Region 故障检测
+            // 启动 Region 故障检测（复用 MasterServer 中 ServiceDiscovery 的 ZK 监听）
             try {
-                CuratorFramework zkClient = ZkClientManager.getInstance().getClient();
-                regionFailover = new RegionFailover(zkClient, new RegionFailover.FailoverListener() {
+                regionFailover = new RegionFailover(new RegionFailover.FailoverListener() {
                     @Override
                     public void onRegionFailed(String regionId, String address) {
                         log.warn("Region failed: {} ({})", regionId, address);
@@ -117,8 +116,13 @@ public class HAMasterServer {
                         log.info("Failover completed: {} -> {}", fromRegion, toRegion);
                     }
                 });
+                
+                // 注册为 ServiceDiscovery 的监听器，复用同一个 CuratorCache
+                masterServer.addRegionChangeListener(regionFailover);
+                
+                // 启动健康检查定时任务
                 regionFailover.start();
-                log.info("RegionFailover started");
+                log.info("RegionFailover started (using ServiceDiscovery events)");
             } catch (Exception e) {
                 log.error("Failed to start region failover", e);
             }

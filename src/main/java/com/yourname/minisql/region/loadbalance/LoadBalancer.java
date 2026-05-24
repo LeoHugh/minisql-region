@@ -85,7 +85,18 @@ public class LoadBalancer {
         log.info("Load balance strategy changed to: {}", strategy);
     }
     
+    public LoadBalanceStrategy getCurrentStrategy() {
+        return strategy;
+    }
+    
     public void addRegion(String id, String address) {
+        // 防止重复添加（CuratorCache 事件和显式加载可能同时触发）
+        boolean exists = regionNodes.stream()
+            .anyMatch(node -> node.getAddress().equals(address));
+        if (exists) {
+            log.debug("Region already exists, skipping: {} -> {}", id, address);
+            return;
+        }
         RegionNode node = new RegionNode(id, address);
         regionNodes.add(node);
         statsMap.put(address, new RegionStats());
@@ -112,6 +123,26 @@ public class LoadBalancer {
             .findFirst()
             .ifPresent(node -> node.setAvailable(available));
         log.info("Region {} is now {}", address, available ? "available" : "unavailable");
+    }
+    
+    /**
+     * 增加指定 Region 的活跃连接计数（在选择 Region 后调用）
+     */
+    public void incrementConnections(String address) {
+        regionNodes.stream()
+            .filter(node -> node.getAddress().equals(address))
+            .findFirst()
+            .ifPresent(RegionNode::incrementConnections);
+    }
+    
+    /**
+     * 减少指定 Region 的活跃连接计数（在请求完成后调用）
+     */
+    public void decrementConnections(String address) {
+        regionNodes.stream()
+            .filter(node -> node.getAddress().equals(address))
+            .findFirst()
+            .ifPresent(RegionNode::decrementConnections);
     }
     
     /**

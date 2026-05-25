@@ -63,3 +63,6 @@ zookeeper/
 # 如果你需要提交 zookeeper/ 的配置和脚本，但要排除它运行时产生的日志和快照数据，请务必忽略以下目录：
 zookeeper/logs/
 zookeeper/data/
+
+
+test_db_*/

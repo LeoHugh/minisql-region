@@ -19,7 +19,7 @@ public class Client {
     private final int masterPort;
     private final AtomicLong requestIdGen = new AtomicLong(1);
     
-    // 缓存表名到 Region 的映射（减少 Master 请求）
+    // 缓存表名到 Region 的映射
     private final Map<String, String> regionCache = new ConcurrentHashMap<>();
     
     // 配置参数
@@ -133,30 +133,31 @@ public class Client {
         }
     }
     /**
- * 带重试和故障转移的 SQL 执行
- * @return SQL 执行结果
- */
-public String execute(String sql) {
-    return execute(sql, maxRetries);
-}
-
-/**
- * 带重试和故障转移的 SQL 执行
- * @param sql SQL 语句
- * @param retries 重试次数
- * @return SQL 执行结果
- */
-public String execute(String sql, int retries) {
-    String tableName = extractTableName(sql);
-    if (tableName == null) {
-        String error = "Error: Cannot extract table name from: " + sql;
-        System.out.println(error);
-        return error;
+     * 暴露对外的接口
+     * @param sql SQL 语句
+     * @return SQL 执行结果
+     */
+    public String execute(String sql) {
+        return execute(sql, maxRetries);
     }
+
+    /**
+     * 带重试和故障转移的 SQL 执行
+     * @param sql SQL 语句
+     * @param retries 重试次数
+     * @return SQL 执行结果
+     */
+    public String execute(String sql, int retries) {
+        String tableName = extractTableName(sql);
+        if (tableName == null) {
+            String error = "Error: Cannot extract table name from: " + sql;
+            System.out.println(error);
+            return error;
+        }
     
-    boolean isCreateTable = sql.trim().toUpperCase().startsWith("CREATE");
+        boolean isCreateTable = sql.trim().toUpperCase().startsWith("CREATE");
     
-    for (int attempt = 0; attempt <= retries; attempt++) {
+        for (int attempt = 0; attempt <= retries; attempt++) {
         try {
             // 获取 Region 地址（支持缓存）
             String regionAddr = getRegionAddress(tableName, isCreateTable, attempt);
@@ -199,7 +200,7 @@ public String execute(String sql, int retries) {
     }
     
     return "Error: Unexpected end of execution";
-}
+    }
 
     
     /**

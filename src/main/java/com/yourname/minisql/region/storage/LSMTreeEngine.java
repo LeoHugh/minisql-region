@@ -84,35 +84,6 @@ public class LSMTreeEngine implements Closeable {
         }
     }
     
-    public List<Map.Entry<byte[], Row>> scanAll() throws IOException {
-        lock.readLock().lock();
-        try {
-            Map<byte[], Row> merged = new TreeMap<>(MemTable.ByteArrayComparator.INSTANCE);
-            
-            // 1. Scan from oldest SSTable to newest SSTable
-            for (int i = sstables.size() - 1; i >= 0; i--) {
-                SSTable sst = sstables.get(i);
-                List<Map.Entry<byte[], Row>> entries = sst.scanAll();
-                for (Map.Entry<byte[], Row> entry : entries) {
-                    merged.put(entry.getKey(), entry.getValue());
-                }
-            }
-            
-            // 2. Scan from active MemTable
-            List<Map.Entry<byte[], Row>> memEntries = activeMemTable.scanAll();
-            for (Map.Entry<byte[], Row> entry : memEntries) {
-                merged.put(entry.getKey(), entry.getValue());
-            }
-            
-            // 3. Filter out deleted entries
-            merged.entrySet().removeIf(entry -> entry.getValue().isDeleted());
-            
-            return new ArrayList<>(merged.entrySet());
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-    
     public void delete(byte[] key) throws IOException {
         lock.writeLock().lock();
         try {

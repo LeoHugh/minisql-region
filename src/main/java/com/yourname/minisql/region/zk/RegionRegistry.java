@@ -149,6 +149,61 @@ public class RegionRegistry implements Closeable {
             .map(ZkConfig.RegionData::getAddress)
             .collect(java.util.stream.Collectors.toList());
     }
+
+    /**
+     * 更新 ZK 中的复制元数据（角色 + 复制端口）
+     */
+    public void updateReplicationInfo(String role, int replicationPort) {
+        try {
+            // 构建带有复制信息的节点数据
+            ZkConfig.RegionData data = new ZkConfig.RegionData(host, port, "online");
+            data.setRole(role);
+            data.setReplicationPort(replicationPort);
+            
+            byte[] nodeData = JSON.toJSONBytes(data);
+            
+            if (zkClient.getClient().checkExists().forPath(nodePath) != null) {
+                zkClient.getClient().setData().forPath(nodePath, nodeData);
+                log.info("Updated ZK node with replication info: role={}, replicationPort={}", role, replicationPort);
+            } else {
+                log.warn("Node {} does not exist in ZK, registering first", nodePath);
+                register();
+                zkClient.getClient().setData().forPath(nodePath, nodeData);
+            }
+        } catch (Exception e) {
+            log.error("Failed to update ZK replication info", e);
+        }
+    }
+
+    /**
+     * 从 ZK 自动发现 Master 的复制地址
+     */
+    public String discoverMasterReplicationAddress() {
+        try {
+            log.info("Attempting to discover master replication address from ZooKeeper...");
+            java.util.List<String> children = zkClient.getChildren(ZkConfig.ZK_REGIONS_PATH);
+            
+            for (String child : children) {
+                String path = ZkConfig.ZK_REGIONS_PATH + "/" + child;
+                byte[] data = zkClient.getNodeData(path);
+                if (data != null && data.length > 0) {
+                    ZkConfig.RegionData regionData = ZkConfig.RegionData.fromBytes(data);
+                    if (regionData != null && "MASTER".equalsIgnoreCase(regionData.getRole()) 
+                            && regionData.getReplicationPort() > 0) {
+                        String address = regionData.getHost() + ":" + regionData.getReplicationPort();
+                        log.info("Discovered master replication address from ZK: {}", address);
+                        return address;
+                    }
+                }
+            }
+            
+            log.warn("No MASTER region found in ZooKeeper");
+        } catch (Exception e) {
+            log.error("Failed to discover master from ZooKeeper", e);
+        }
+        return null;
+    }
+
     
     @Override
     public void close() throws IOException {

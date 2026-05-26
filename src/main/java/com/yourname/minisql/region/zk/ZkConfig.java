@@ -89,6 +89,8 @@ public class ZkConfig {
         private int port;
         private String status;
         private long timestamp;
+        private String role;            // "MASTER" / "SLAVE" / "STANDBY"
+        private int replicationPort;    // Master 的复制端口（仅 Master 有效）
         
         public RegionData() {}
         
@@ -108,6 +110,10 @@ public class ZkConfig {
         public void setStatus(String status) { this.status = status; }
         public long getTimestamp() { return timestamp; }
         public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
+        public String getRole() { return role; }
+        public void setRole(String role) { this.role = role; }
+        public int getReplicationPort() { return replicationPort; }
+        public void setReplicationPort(int replicationPort) { this.replicationPort = replicationPort; }
         
         public String getAddress() {
             return host + ":" + port;
@@ -188,8 +194,8 @@ public class ZkConfig {
         
         @Override
         public String toString() {
-            return String.format("RegionData{host='%s', port=%d, status='%s', timestamp=%d}", 
-                               host, port, status, timestamp);
+            return String.format("RegionData{host='%s', port=%d, status='%s', role='%s', replicationPort=%d, timestamp=%d}", 
+                               host, port, status, role, replicationPort, timestamp);
         }
         
         @Override

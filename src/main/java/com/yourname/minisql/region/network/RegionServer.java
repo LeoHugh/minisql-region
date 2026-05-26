@@ -2,6 +2,7 @@ package com.yourname.minisql.region.network;
 
 import com.yourname.minisql.region.manager.DatabaseManager;
 import com.yourname.minisql.region.network.protocol.Message;
+import com.yourname.minisql.region.replication.ReplicationManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,13 +16,25 @@ public class RegionServer {
     private static final Logger log = LoggerFactory.getLogger(RegionServer.class);
     private final int port;
     private final DatabaseManager dbManager;
+    private final ReplicationManager replicationManager;
     private ServerSocket serverSocket;
     private final ExecutorService threadPool;
     private volatile boolean running = true;
     
+    /**
+     * 构造方法（无复制管理器，兼容旧用法）
+     */
     public RegionServer(int port, DatabaseManager dbManager) {
+        this(port, dbManager, null);
+    }
+    
+    /**
+     * 构造方法（带复制管理器，支持 Slave 只读保护）
+     */
+    public RegionServer(int port, DatabaseManager dbManager, ReplicationManager replicationManager) {
         this.port = port;
         this.dbManager = dbManager;
+        this.replicationManager = replicationManager;
         this.threadPool = Executors.newCachedThreadPool();
     }
     
@@ -32,7 +45,7 @@ public class RegionServer {
         while (running) {
             try {
                 Socket clientSocket = serverSocket.accept();
-                threadPool.submit(new ClientHandler(clientSocket, dbManager));
+                threadPool.submit(new ClientHandler(clientSocket, dbManager, replicationManager));
             } catch (IOException e) {
                 if (running) {
                     log.error("Error accepting connection", e);
@@ -52,10 +65,12 @@ public class RegionServer {
     private static class ClientHandler implements Runnable {
         private final Socket socket;
         private final DatabaseManager dbManager;
+        private final ReplicationManager replicationManager;
         
-        public ClientHandler(Socket socket, DatabaseManager dbManager) {
+        public ClientHandler(Socket socket, DatabaseManager dbManager, ReplicationManager replicationManager) {
             this.socket = socket;
             this.dbManager = dbManager;
+            this.replicationManager = replicationManager;
         }
         
         @Override
@@ -85,6 +100,23 @@ public class RegionServer {
                         String sql = msg.getBodyAsString();
                         log.info("Executing SQL: {}", sql);
                         
+                        // Slave 只读保护：拒绝写操作
+                        if (isSlaveMode() && isWriteOperation(sql)) {
+                            String errorMsg = "Error: Current node is SLAVE (read-only). Write operations are not allowed. " +
+                                              "Please send writes to the MASTER node.";
+                            log.warn("Rejected write operation on SLAVE: {}", sql);
+                            
+                            Message response = Message.createResponse(
+                                msg.getRequestId(),
+                                NetworkConst.Status.ERROR,
+                                errorMsg.getBytes()
+                            );
+                            dos.writeInt(response.encode().length);
+                            dos.write(response.encode());
+                            dos.flush();
+                            continue;
+                        }
+                        
                         String result = dbManager.execute(sql);
                         
                         Message response = Message.createResponse(
@@ -106,6 +138,29 @@ public class RegionServer {
                     log.error("Error closing socket", e);
                 }
             }
+        }
+        
+        /**
+         * 判断当前节点是否为 Slave 模式
+         */
+        private boolean isSlaveMode() {
+            return replicationManager != null && "SLAVE".equals(replicationManager.getRole());
+        }
+        
+        /**
+         * 判断 SQL 是否为写操作
+         */
+        private boolean isWriteOperation(String sql) {
+            if (sql == null || sql.isEmpty()) {
+                return false;
+            }
+            String sqlUpper = sql.trim().toUpperCase();
+            return sqlUpper.startsWith("INSERT") 
+                || sqlUpper.startsWith("UPDATE") 
+                || sqlUpper.startsWith("DELETE") 
+                || sqlUpper.startsWith("CREATE") 
+                || sqlUpper.startsWith("DROP") 
+                || sqlUpper.startsWith("ALTER");
         }
     }
 }

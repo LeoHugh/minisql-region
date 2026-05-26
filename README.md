@@ -74,3 +74,16 @@ UPDATE users SET name = 'Alice New', age = '26' WHERE id = '1';
 DELETE FROM users WHERE id = '1';
 -- 删除不存在的记录
 DELETE FROM users WHERE id = '999';
+
+
+
+
+## 问题
+master层的table仅存储在内存
+
+可以存到zk里面
+
+
+region层的master挂了换一个当master
+
+

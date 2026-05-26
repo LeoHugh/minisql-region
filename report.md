@@ -3,14 +3,14 @@
 3240103356 李胡诚  完成所有部分
 ## 设计模块层
 整体架构图如下
-![alt text](image-1.png)
+![alt text](image-3.png)
 
 ### client
 为了应对高并发、节点动态上下线，故障转移，client被设计为
 无状态的智能客户端。
 
 无状态指其本身不会存储任何持久化数据，但可以处理部分业务路由
-![alt text](image.png)
+![alt text](image-1.png)
 **执行模块**
 ``` java
 public string execute(string sql)  //暴露对外的接口
@@ -84,7 +84,7 @@ public String GetStatus()
 
 ### region层
 Region 层是底层的物理存储与查询执行引擎，实现了读写高性能与数据强可靠：
-
+![alt text](image-4.png)
 #### 1. DatabaseManager（物理数据库管理器）
 *   **作用**：协调 SQL 解析器、单机存储引擎与主从复制管理器。
 *   **元数据落盘**：在 `catalog.meta` 中使用序列化技术持久化表结构（Schema）元数据，启动时调用 `loadCatalog()` 加载，建表时调用 `saveCatalog()` 刷盘。

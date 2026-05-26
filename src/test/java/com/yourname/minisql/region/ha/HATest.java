@@ -65,8 +65,8 @@ public class HATest {
         System.out.println("   ✓ Master2 启动完成");
         
         // 等待 Master 选举完成
-        System.out.println("\n4. 等待 Master 选举完成 (3秒)...");
-        Thread.sleep(3000);
+        System.out.println("\n4. 等待 Master 选举完成 (最大5秒)...");
+        waitForCondition(() -> isMasterLeader(9999) || isMasterLeader(9998), 5000);
         
         // 检查哪个 Master 是 Leader
         checkMasterLeader();
@@ -74,7 +74,10 @@ public class HATest {
         // 启动 Region1
         System.out.println("\n5. 启动 Region1 (端口 8801)...");
         db1 = new DatabaseManager("./test_db_1");
-        region1 = new RegionServer(8801, db1);
+        com.yourname.minisql.region.replication.ReplicationManager rep1 = new com.yourname.minisql.region.replication.ReplicationManager(db1, "region-1");
+        db1.setReplicationManager(rep1);
+        rep1.becomeMaster();
+        region1 = new RegionServer(8801, db1, rep1);
         new Thread(() -> {
             try {
                 region1.start();
@@ -85,14 +88,18 @@ public class HATest {
         }).start();
         
         // 注册 Region1 到 ZK
-        registry1 = new RegionRegistry("localhost", 8801);
+        registry1 = new RegionRegistry("localhost", 8801, "test-group");
         registry1.register();
+        registry1.updateReplicationInfo("MASTER", rep1.getReplicationPort());
         System.out.println("   ✓ Region1 已注册到 ZK");
         
         // 启动 Region2
         System.out.println("\n6. 启动 Region2 (端口 8802)...");
         db2 = new DatabaseManager("./test_db_2");
-        region2 = new RegionServer(8802, db2);
+        com.yourname.minisql.region.replication.ReplicationManager rep2 = new com.yourname.minisql.region.replication.ReplicationManager(db2, "region-2");
+        db2.setReplicationManager(rep2);
+        rep2.becomeSlave("localhost:" + rep1.getReplicationPort());
+        region2 = new RegionServer(8802, db2, rep2);
         new Thread(() -> {
             try {
                 region2.start();
@@ -103,13 +110,16 @@ public class HATest {
         }).start();
         
         // 注册 Region2 到 ZK
-        registry2 = new RegionRegistry("localhost", 8802);
+        registry2 = new RegionRegistry("localhost", 8802, "test-group");
         registry2.register();
+        registry2.updateReplicationInfo("SLAVE", rep2.getReplicationPort());
         System.out.println("   ✓ Region2 已注册到 ZK");
         
         // 等待 Region 注册和发现
-        System.out.println("\n7. 等待 Region 注册完成 (3秒)...");
-        Thread.sleep(3000);
+        System.out.println("\n7. 等待 Region 注册完成 (最大5秒)...");
+        waitForCondition(() -> isRegionAvailable(8801) && isRegionAvailable(8802), 5000);
+        // 额外等待，确保 LoadBalancer 更新
+        try { Thread.sleep(1000); } catch(Exception e) {}
         
         // 检查 Region 是否可用
         checkRegionAvailable();
@@ -310,11 +320,9 @@ public class HATest {
         System.out.println("  ✓ Master1 已停止");
         
         // 等待选举
-        System.out.println("\n[步骤3] 等待 Master 选举完成 (5秒)...");
-        for (int i = 1; i <= 5; i++) {
-            Thread.sleep(1000);
-            System.out.println("  等待 " + i + " 秒...");
-        }
+        System.out.println("\n[步骤3] 等待 Master 选举完成 (最大5秒)...");
+        waitForCondition(() -> isMasterLeader(9998), 5000);
+        try { Thread.sleep(1000); } catch(Exception e) {}
         
         // 检查新 Leader
         System.out.println("\n  检查新 Leader 状态:");
@@ -440,4 +448,24 @@ public class HATest {
     }
 }
 
-}
+    private boolean isRegionAvailable(int port) {
+        try (Socket s = new Socket("localhost", port)) {
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    private boolean waitForCondition(java.util.concurrent.Callable<Boolean> condition, int timeoutMs) {
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            try {
+                if (Boolean.TRUE.equals(condition.call())) {
+                    return true;
+                }
+            } catch (Exception e) {}
+            try { Thread.sleep(200); } catch (Exception e) {}
+        }
+        return false;
+    }
+} 

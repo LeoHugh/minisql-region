@@ -19,8 +19,8 @@ public class Client {
     private final int masterPort;
     private final AtomicLong requestIdGen = new AtomicLong(1);
     
-    // 缓存表名到 Region 的映射
-    private final Map<String, String> regionCache = new ConcurrentHashMap<>();
+    // 缓存表名到路由（Master+Slaves）的映射
+    private final Map<String, TableRoute> regionCache = new ConcurrentHashMap<>();
     
     // 配置参数
     private int maxRetries = 3;           // 最大重试次数
@@ -28,6 +28,39 @@ public class Client {
     private boolean enableCache = true;   // 是否启用缓存
     private long cacheTtlMs = 60000;      // 缓存过期时间（毫秒）
     private final Map<String, Long> cacheTimestamp = new ConcurrentHashMap<>();
+    
+    /**
+     * 本地路由缓存结构：包含一个 Master 地址和多个 Slave 地址。
+     */
+    private static class TableRoute {
+        String masterAddr;
+        java.util.List<String> slaveAddrs = new java.util.ArrayList<>();
+        
+        public TableRoute(String groupInfoString) {
+            // 解析来自 Master 的格式：groupId|master=host:port|slaves=host:port,host:port
+            String[] parts = groupInfoString.split("\\|");
+            for (String part : parts) {
+                if (part.startsWith("master=")) {
+                    masterAddr = part.substring("master=".length());
+                    if (masterAddr.isEmpty()) masterAddr = null;
+                } else if (part.startsWith("slaves=")) {
+                    String slavesStr = part.substring("slaves=".length());
+                    if (!slavesStr.isEmpty()) {
+                        String[] arr = slavesStr.split(",");
+                        for (String s : arr) {
+                            if (!s.trim().isEmpty()) {
+                                slaveAddrs.add(s.trim());
+                            }
+                        }
+                    }
+                }
+            }
+            // 兜底：如果就是个普通的 ip:port，说明是按旧格式返回的单点
+            if (masterAddr == null && groupInfoString.contains(":") && !groupInfoString.contains("|")) {
+                masterAddr = groupInfoString;
+            }
+        }
+    }
     
     public Client(String masterHost, int masterPort) {
         this.masterHost = masterHost;
@@ -90,8 +123,10 @@ public class Client {
             int len = dis.readInt();
             byte[] respData = new byte[len];
             dis.readFully(respData);
-            
             Message response = Message.decode(respData);
+            if (response.getStatus() == NetworkConst.Status.ERROR) {
+                return "Error: " + response.getBodyAsString();
+            }
             return response.getBodyAsString();
         }
     }
@@ -156,12 +191,16 @@ public class Client {
         }
     
         boolean isCreateTable = sql.trim().toUpperCase().startsWith("CREATE");
+        boolean isWrite = isWriteOperation(sql); // 客户端判断是否是写操作
     
         for (int attempt = 0; attempt <= retries; attempt++) {
         try {
-            // 获取 Region 地址（支持缓存）
-            String regionAddr = getRegionAddress(tableName, isCreateTable, attempt);
-            System.out.println("Got region address: " + regionAddr);
+            // 获取目标地址（读写分离：写只找Master，读尽量找Slave）
+            String regionAddr = getRegionAddress(tableName, isCreateTable, isWrite, attempt);
+            if (regionAddr == null || regionAddr.isEmpty()) {
+                throw new IOException("No available target region found.");
+            }
+            System.out.println("Got region address: " + regionAddr + " (Write=" + isWrite + ")");
             
             // 执行 SQL
             long startTime = System.currentTimeMillis();
@@ -204,36 +243,76 @@ public class Client {
 
     
     /**
-     * 获取 Region 地址（支持缓存和负载均衡）
+     * 获取 Region 地址，支持客户端路由（读写分离）和小规模负载均衡
      */
-    private String getRegionAddress(String tableName, boolean isCreateTable, int attempt) throws IOException {
+    private String getRegionAddress(String tableName, boolean isCreateTable, boolean isWrite, int attempt) throws IOException {
         // 建表请求总是从 Master 获取（用于创建路由）
         if (isCreateTable) {
-            return sendToMaster(NetworkConst.RequestType.CREATE_TABLE, tableName);
+            String addr = sendToMaster(NetworkConst.RequestType.CREATE_TABLE, tableName);
+            if (addr != null && (addr.startsWith("Error") || addr.startsWith("No available"))) {
+                throw new IOException("Master returned error: " + addr);
+            }
+            // 建表不需要放回复合缓存，马上返回
+            return addr;
         }
         
+        TableRoute route = null;
         // 检查缓存
         if (enableCache) {
-            String cached = regionCache.get(tableName);
+            route = regionCache.get(tableName);
             Long timestamp = cacheTimestamp.get(tableName);
             
-            if (cached != null && timestamp != null && 
-                (System.currentTimeMillis() - timestamp) < cacheTtlMs) {
-                log.debug("Using cached region for {}: {}", tableName, cached);
-                return cached;
+            if (route != null && timestamp != null && 
+                (System.currentTimeMillis() - timestamp) > cacheTtlMs) {
+                route = null; // 缓存过期
             }
         }
         
-        // 从 Master 获取（Master 会做负载均衡）
-        String regionAddr = sendToMaster(NetworkConst.RequestType.GET_REGION, tableName);
-        
-        // 更新缓存
-        if (enableCache) {
-            regionCache.put(tableName, regionAddr);
-            cacheTimestamp.put(tableName, System.currentTimeMillis());
+        if (route == null) {
+            String groupInfoString = sendToMaster(NetworkConst.RequestType.GET_REGION, tableName);
+            if (groupInfoString == null || groupInfoString.startsWith("Error") || groupInfoString.startsWith("No available")) {
+                throw new IOException("Failed to get region for table: " + groupInfoString);
+            }
+            route = new TableRoute(groupInfoString);
+            
+            // 更新缓存
+            if (enableCache) {
+                regionCache.put(tableName, route);
+                cacheTimestamp.put(tableName, System.currentTimeMillis());
+            }
         }
         
-        return regionAddr;
+        // 在 TableRoute 中进行客户端本地路由判断
+        if (isWrite) {
+            // 写操作：严格路由到 Master
+            if (route.masterAddr == null) {
+                throw new IOException("Cannot perform write operation: no master available for this table.");
+            }
+            log.debug("Routing write request to Master: {}", route.masterAddr);
+            return route.masterAddr;
+        } else {
+            // 读操作：如果有 slave，随机选一个 slave；如果没有，退化读 master
+            if (route.slaveAddrs.isEmpty()) {
+                log.debug("No slaves available, routing read request to Master: {}", route.masterAddr);
+                return route.masterAddr;
+            }
+            // 随机选一个从节点做读负载均衡
+            int randIndex = (int)(Math.random() * route.slaveAddrs.size());
+            String slaveAddr = route.slaveAddrs.get(randIndex);
+            log.debug("Routing read request to Slave: {}", slaveAddr);
+            return slaveAddr;
+        }
+    }
+    
+    /**
+     * 简单的客户端端 SQL 意图判断
+     */
+    private boolean isWriteOperation(String sql) {
+        String upper = sql.trim().toUpperCase();
+        return upper.startsWith("INSERT") || 
+               upper.startsWith("UPDATE") || 
+               upper.startsWith("DELETE") || 
+               upper.startsWith("CREATE");
     }
     
     /**
@@ -354,8 +433,9 @@ public class Client {
         
         if (!regionCache.isEmpty()) {
             sb.append("Cached routes:\n");
-            for (Map.Entry<String, String> entry : regionCache.entrySet()) {
-                sb.append("  ").append(entry.getKey()).append(" -> ").append(entry.getValue()).append("\n");
+            for (Map.Entry<String, TableRoute> entry : regionCache.entrySet()) {
+                TableRoute tr = entry.getValue();
+                sb.append("  ").append(entry.getKey()).append(" -> Master: ").append(tr.masterAddr).append(", Slaves: ").append(tr.slaveAddrs).append("\n");
             }
         }
         

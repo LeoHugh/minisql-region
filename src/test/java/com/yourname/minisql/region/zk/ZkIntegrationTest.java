@@ -50,11 +50,11 @@ public class ZkIntegrationTest {
         
         // 清理 ZK 节点
         try {
-            zkClient.deleteNode(ZkConfig.ZK_REGIONS_PATH);
+            zkClient.deleteNode(ZkConfig.getGroupRegionsPath("test-group"));
         } catch (Exception e) {
             // 忽略
         }
-        zkClient.ensurePathExists(ZkConfig.ZK_REGIONS_PATH);
+        zkClient.ensurePathExists(ZkConfig.getGroupRegionsPath("test-group"));
         
         masterPort = findFreePort();
         region1Port = findFreePort();
@@ -82,9 +82,13 @@ public class ZkIntegrationTest {
         
         // 2. 启动 Region1 并注册到 ZK
         DatabaseManager db1 = new DatabaseManager(tempDir.resolve("region1").toString());
-        regionServer1 = new RegionServer(region1Port, db1);
-        regionRegistry1 = new RegionRegistry("localhost", region1Port);
+        com.yourname.minisql.region.replication.ReplicationManager rep1 = new com.yourname.minisql.region.replication.ReplicationManager(db1, "region-1");
+        db1.setReplicationManager(rep1);
+        rep1.becomeMaster();
+        regionServer1 = new RegionServer(region1Port, db1, rep1);
+        regionRegistry1 = new RegionRegistry("localhost", region1Port, "test-group");
         regionRegistry1.register();
+        regionRegistry1.updateReplicationInfo("MASTER", rep1.getReplicationPort());
         System.out.println("✓ Region1 已注册到 ZK");
         
         executor.submit(() -> {
@@ -100,9 +104,13 @@ public class ZkIntegrationTest {
         
         // 3. 启动 Region2 并注册到 ZK
         DatabaseManager db2 = new DatabaseManager(tempDir.resolve("region2").toString());
-        regionServer2 = new RegionServer(region2Port, db2);
-        regionRegistry2 = new RegionRegistry("localhost", region2Port);
+        com.yourname.minisql.region.replication.ReplicationManager rep2 = new com.yourname.minisql.region.replication.ReplicationManager(db2, "region-2");
+        db2.setReplicationManager(rep2);
+        rep2.becomeSlave("localhost:" + rep1.getReplicationPort());
+        regionServer2 = new RegionServer(region2Port, db2, rep2);
+        regionRegistry2 = new RegionRegistry("localhost", region2Port, "test-group");
         regionRegistry2.register();
+        regionRegistry2.updateReplicationInfo("SLAVE", rep2.getReplicationPort());
         System.out.println("✓ Region2 已注册到 ZK");
         
         executor.submit(() -> {
@@ -117,7 +125,9 @@ public class ZkIntegrationTest {
         System.out.println("✓ RegionServer2 就绪");
         
         // 等待 ZK 同步和服务发现更新
-        Thread.sleep(2000);
+        System.out.println("等待 RegionServer2 注册...");
+        waitForCondition(() -> isRegionRegistered(region2Port), 5000);
+        try { Thread.sleep(1000); } catch (Exception e) {}
         
         // 4. 创建 Client
         client = new Client("localhost", masterPort);
@@ -163,7 +173,7 @@ public class ZkIntegrationTest {
         System.out.println("\n>>> 测试 Region 自动注册");
         
         // 获取 ZK 中注册的节点
-        java.util.List<String> children = zkClient.getChildren(ZkConfig.ZK_REGIONS_PATH);
+        java.util.List<String> children = zkClient.getChildren(ZkConfig.getGroupRegionsPath("test-group"));
         System.out.println("ZK 中的 Region 节点: " + children);
         
         assertTrue(children.contains("region-" + region1Port));
@@ -225,6 +235,8 @@ public class ZkIntegrationTest {
                       "插入应成功");
             outContent.reset();
             
+            
+            
             // 查询
             client.execute("SELECT * FROM test_crud WHERE id = '1'");
             output = outContent.toString();
@@ -238,6 +250,8 @@ public class ZkIntegrationTest {
             assertTrue(output.contains("Deleted row") || output.contains("删除成功"), 
                       "删除应成功");
             outContent.reset();
+            
+            
             
             // 验证删除
             client.execute("SELECT * FROM test_crud WHERE id = '1'");
@@ -269,7 +283,9 @@ public class ZkIntegrationTest {
         }
         
         // 等待 ZK 感知
-        Thread.sleep(3000);
+        System.out.println("等待 RegionServer2 下线感知...");
+        waitForCondition(() -> !isRegionRegistered(region2Port), 5000);
+        try { Thread.sleep(1000); } catch (Exception e) {}
         
         ByteArrayOutputStream outContent = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
@@ -309,8 +325,9 @@ public class ZkIntegrationTest {
         // 重新启动 Region2
         DatabaseManager db2 = new DatabaseManager(tempDir.resolve("region2_re").toString());
         regionServer2 = new RegionServer(region2Port, db2);
-        regionRegistry2 = new RegionRegistry("localhost", region2Port);
+        regionRegistry2 = new RegionRegistry("localhost", region2Port, "test-group");
         regionRegistry2.register();
+        regionRegistry2.updateReplicationInfo("SLAVE", 0);
         System.out.println("Region2 重新注册");
         
         executor.submit(() -> {
@@ -325,7 +342,7 @@ public class ZkIntegrationTest {
         Thread.sleep(3000);
         
         // 验证 ZK 中节点存在
-        java.util.List<String> children = zkClient.getChildren(ZkConfig.ZK_REGIONS_PATH);
+        java.util.List<String> children = zkClient.getChildren(ZkConfig.getGroupRegionsPath("test-group"));
         System.out.println("ZK 中的 Region 节点: " + children);
         assertTrue(children.contains("region-" + region2Port), 
                   "Region2 应重新注册到 ZK");
@@ -357,5 +374,27 @@ public class ZkIntegrationTest {
             }
         }
         throw new RuntimeException("端口 " + port + " 在 " + timeoutMs + "ms 内未能启动");
+    }
+
+    private boolean isRegionRegistered(int port) {
+        try {
+            java.util.List<String> children = zkClient.getChildren(ZkConfig.getGroupRegionsPath("test-group"));
+            return children.contains("region-" + port);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean waitForCondition(java.util.concurrent.Callable<Boolean> condition, int timeoutMs) {
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            try {
+                if (Boolean.TRUE.equals(condition.call())) {
+                    return true;
+                }
+            } catch (Exception e) {}
+            try { Thread.sleep(200); } catch (Exception e) {}
+        }
+        return false;
     }
 }

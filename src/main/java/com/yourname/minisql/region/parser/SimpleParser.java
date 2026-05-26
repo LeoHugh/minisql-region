@@ -35,6 +35,12 @@ public class SimpleParser {
         // for SELECT
         public List<String> columns;         
         
+        // for JOIN
+        public String joinTableName;
+        public String joinConditionLeft;
+        public String joinConditionRight;
+        public boolean hasJoin;
+        
         // 简化的 WHERE 条件 (如 id = '1')
         public String primaryKeyValue;       
         
@@ -124,6 +130,18 @@ public class SimpleParser {
             result.columns.add(item.toString());
         }
         
+        // 解析 JOIN
+        if (plainSelect.getJoins() != null && !plainSelect.getJoins().isEmpty()) {
+            net.sf.jsqlparser.statement.select.Join join = plainSelect.getJoins().get(0);
+            result.hasJoin = true;
+            result.joinTableName = join.getRightItem().toString();
+            if (join.getOnExpression() instanceof EqualsTo) {
+                EqualsTo equalsTo = (EqualsTo) join.getOnExpression();
+                result.joinConditionLeft = equalsTo.getLeftExpression().toString();
+                result.joinConditionRight = equalsTo.getRightExpression().toString();
+            }
+        }
+        
         // 3. 解析 WHERE 条件 (以简单的 id = '1' 为例)
         Expression where = plainSelect.getWhere();
         if (where instanceof EqualsTo) {
@@ -133,7 +151,7 @@ public class SimpleParser {
             String rightVal = equalsTo.getRightExpression().toString().replace("'", "");
             
             // 如果你规定目前只支持按 id 查询
-            if ("id".equalsIgnoreCase(leftCol)) {
+            if ("id".equalsIgnoreCase(leftCol) || (result.tableName + ".id").equalsIgnoreCase(leftCol)) {
                 result.primaryKeyValue = rightVal;
             }
         }

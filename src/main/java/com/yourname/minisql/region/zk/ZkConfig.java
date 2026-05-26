@@ -13,11 +13,24 @@ public class ZkConfig {
     // ZK 中项目根路径
     public static final String ZK_BASE_PATH = "/minisql";
     
-    // Region 注册的父路径
+    // Region 注册的父路径（旧的全局路径，保留兼容）
     public static final String ZK_REGIONS_PATH = ZK_BASE_PATH + "/regions";
     
     // Master 注册的路径
     public static final String ZK_MASTER_PATH = ZK_BASE_PATH + "/master";
+    
+    // 分组（Replica Group / Shard）根路径
+    public static final String ZK_GROUPS_PATH = ZK_BASE_PATH + "/groups";
+    
+    /**
+     * 获取指定 groupId 的 regions 路径: /minisql/groups/<groupId>/regions
+     */
+    public static String getGroupRegionsPath(String groupId) {
+        if (TestConfig.isTestMode) {
+            return TestConfig.TEST_ZK_BASE_PATH + "/groups/" + groupId + "/regions";
+        }
+        return ZK_GROUPS_PATH + "/" + groupId + "/regions";
+    }
     
     // 会话超时时间（毫秒）
     public static final int SESSION_TIMEOUT_MS = 30000;
@@ -67,6 +80,7 @@ public class ZkConfig {
         public static final String TEST_ZK_BASE_PATH = "/minisql_test";
         public static final String TEST_ZK_REGIONS_PATH = TEST_ZK_BASE_PATH + "/regions";
         public static final String TEST_ZK_MASTER_PATH = TEST_ZK_BASE_PATH + "/master";
+        public static final String TEST_ZK_GROUPS_PATH = TEST_ZK_BASE_PATH + "/groups";
         public static final int TEST_SESSION_TIMEOUT_MS = 5000;
         public static final int TEST_CONNECTION_TIMEOUT_MS = 3000;
         
@@ -91,6 +105,7 @@ public class ZkConfig {
         private long timestamp;
         private String role;            // "MASTER" / "SLAVE" / "STANDBY"
         private int replicationPort;    // Master 的复制端口（仅 Master 有效）
+        private String groupId;         // 所属分组 ID（Replica Group / Shard）
         
         public RegionData() {}
         
@@ -114,6 +129,8 @@ public class ZkConfig {
         public void setRole(String role) { this.role = role; }
         public int getReplicationPort() { return replicationPort; }
         public void setReplicationPort(int replicationPort) { this.replicationPort = replicationPort; }
+        public String getGroupId() { return groupId; }
+        public void setGroupId(String groupId) { this.groupId = groupId; }
         
         public String getAddress() {
             return host + ":" + port;
@@ -194,8 +211,8 @@ public class ZkConfig {
         
         @Override
         public String toString() {
-            return String.format("RegionData{host='%s', port=%d, status='%s', role='%s', replicationPort=%d, timestamp=%d}", 
-                               host, port, status, role, replicationPort, timestamp);
+            return String.format("RegionData{host='%s', port=%d, status='%s', role='%s', replicationPort=%d, groupId='%s', timestamp=%d}", 
+                               host, port, status, role, replicationPort, groupId, timestamp);
         }
         
         @Override

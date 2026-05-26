@@ -24,13 +24,14 @@ public class RegionRegistryTest {
         // 初始化 ZK 客户端
         ZkClientManager.getInstance().init();
         
-        // 清理旧的注册节点
+        // 清理旧的注册节点（分组路径）
+        String groupRegionsPath = ZkConfig.getGroupRegionsPath("test-group");
         try {
-            ZkClientManager.getInstance().deleteNode(ZkConfig.ZK_REGIONS_PATH);
+            ZkClientManager.getInstance().deleteNode(groupRegionsPath);
         } catch (Exception e) {
             // 忽略
         }
-        ZkClientManager.getInstance().ensurePathExists(ZkConfig.ZK_REGIONS_PATH);
+        ZkClientManager.getInstance().ensurePathExists(groupRegionsPath);
         
         System.out.println("\n=== Region 注册测试开始 ===");
     }
@@ -54,11 +55,11 @@ public class RegionRegistryTest {
     public void testSingleRegionRegister() throws Exception {
         System.out.println("\n>>> 测试单个 Region 注册");
         
-        registry1 = new RegionRegistry("localhost", 8888);
+        registry1 = new RegionRegistry("localhost", 8888, "test-group");
         registry1.register();
         
         // 验证节点已创建
-        String nodePath = ZkConfig.ZK_REGIONS_PATH + "/region-8888";
+        String nodePath = ZkConfig.getGroupRegionsPath("test-group") + "/region-8888";
         assertNotNull(ZkClientManager.getInstance().getClient().checkExists().forPath(nodePath));
         
         // 验证节点数据
@@ -76,9 +77,9 @@ public class RegionRegistryTest {
     public void testMultipleRegionsRegister() throws Exception {
         System.out.println("\n>>> 测试多个 Region 注册");
         
-        registry1 = new RegionRegistry("localhost", 8888);
-        registry2 = new RegionRegistry("localhost", 8889);
-        registry3 = new RegionRegistry("localhost", 8890);
+        registry1 = new RegionRegistry("localhost", 8888, "test-group");
+        registry2 = new RegionRegistry("localhost", 8889, "test-group");
+        registry3 = new RegionRegistry("localhost", 8890, "test-group");
         
         registry1.register();
         System.out.println("✓ Region1 (8888) 已注册");
@@ -91,7 +92,7 @@ public class RegionRegistryTest {
         Thread.sleep(1000);
         
         // 验证所有节点都存在
-        java.util.List<String> children = ZkClientManager.getInstance().getChildren(ZkConfig.ZK_REGIONS_PATH);
+        java.util.List<String> children = ZkClientManager.getInstance().getChildren(ZkConfig.getGroupRegionsPath("test-group"));
         System.out.println("当前注册的 Region: " + children);
         
         assertTrue(children.contains("region-8888"));
@@ -108,10 +109,10 @@ public class RegionRegistryTest {
         System.out.println("\n>>> 测试 Region 自动注销");
         
         // 创建并注册 Region
-        RegionRegistry tempRegistry = new RegionRegistry("localhost", 9999);
+        RegionRegistry tempRegistry = new RegionRegistry("localhost", 9999, "test-group");
         tempRegistry.register();
         
-        String nodePath = ZkConfig.ZK_REGIONS_PATH + "/region-9999";
+        String nodePath = ZkConfig.getGroupRegionsPath("test-group") + "/region-9999";
         assertNotNull(ZkClientManager.getInstance().getClient().checkExists().forPath(nodePath));
         System.out.println("✓ Region 已注册，节点存在");
         
@@ -131,7 +132,7 @@ public class RegionRegistryTest {
     public void testUpdateStatus() throws Exception {
         System.out.println("\n>>> 测试 Region 状态更新");
         
-        registry1 = new RegionRegistry("localhost", 8888);
+        registry1 = new RegionRegistry("localhost", 8888, "test-group");
         registry1.register();
         
         // 更新状态
@@ -140,7 +141,7 @@ public class RegionRegistryTest {
         Thread.sleep(500);
         
         // 验证状态已更新
-        String nodePath = ZkConfig.ZK_REGIONS_PATH + "/region-8888";
+        String nodePath = ZkConfig.getGroupRegionsPath("test-group") + "/region-8888";
         byte[] data = ZkClientManager.getInstance().getNodeData(nodePath);
         String dataStr = new String(data);
         assertTrue(dataStr.contains("busy"));
@@ -161,7 +162,7 @@ public class RegionRegistryTest {
         System.out.println("\n>>> 测试 Region 间互相感知");
         
         // 启动第一个 Region
-        RegionRegistry regionA = new RegionRegistry("localhost", 8001);
+        RegionRegistry regionA = new RegionRegistry("localhost", 8001, "test-group");
         regionA.register();
         System.out.println("✓ RegionA (8001) 已启动");
         
@@ -169,7 +170,7 @@ public class RegionRegistryTest {
         Thread.sleep(500);
         
         // 启动第二个 Region
-        RegionRegistry regionB = new RegionRegistry("localhost", 8002);
+        RegionRegistry regionB = new RegionRegistry("localhost", 8002, "test-group");
         regionB.register();
         System.out.println("✓ RegionB (8002) 已启动");
         

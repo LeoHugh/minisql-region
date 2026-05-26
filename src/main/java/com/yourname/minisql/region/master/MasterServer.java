@@ -27,11 +27,8 @@ public class MasterServer {
     // 服务发现
     private ServiceDiscovery serviceDiscovery;
     
-    // 负载均衡器
+    // 负载均衡器（Group-based）
     private final LoadBalancer loadBalancer;
-    
-    // 静态路由表：表名 -> Region 地址（从 ZK 动态获取）
-    private final Map<String, String> tableToRegion = new ConcurrentHashMap<>();
     
     // 在 start() 之前注册的额外监听器（如 RegionFailover）
     private final List<ServiceDiscovery.RegionChangeListener> pendingListeners = new CopyOnWriteArrayList<>();
@@ -66,24 +63,42 @@ public class MasterServer {
                 log.info("Registered external region change listener: {}", listener.getClass().getSimpleName());
             }
             
-            // 注册内部监听器（LoadBalancer 同步）
+            // 注册内部监听器（LoadBalancer 同步 —— 按 Group 分组）
             serviceDiscovery.addListener(new ServiceDiscovery.RegionChangeListener() {
                 @Override
                 public void onRegionOnline(ZkConfig.RegionData region) {
                     String address = region.getAddress();
                     String regionId = region.getHost() + ":" + region.getPort();
-                    log.info("Region online: {}", address);
-                    loadBalancer.addRegion(regionId, address);
+                    String groupId = region.getGroupId();
+                    String role = region.getRole();
+                    
+                    if (groupId == null || groupId.isEmpty()) {
+                        groupId = "default";
+                    }
+                    if (role == null || role.isEmpty()) {
+                        role = "STANDBY";
+                    }
+                    
+                    log.info("Region online: group='{}', role='{}', addr='{}'", groupId, role, address);
+                    loadBalancer.addRegionToGroup(groupId, role, regionId, address);
                     loadBalancer.markAvailable(address, true);
                 }
                 
                 @Override
                 public void onRegionOffline(ZkConfig.RegionData region) {
                     String address = region.getAddress();
-                    log.info("Region offline: {}", address);
-                    loadBalancer.removeRegion(address);
-                    // 从路由表中移除该 Region 的表
-                    removeRegionFromRouting(address);
+                    String groupId = region.getGroupId();
+                    
+                    if (groupId != null && !groupId.isEmpty()) {
+                        log.info("Region offline: group='{}', addr='{}'", groupId, address);
+                        loadBalancer.removeRegionFromGroup(groupId, address);
+                    } else {
+                        log.info("Region offline: addr='{}' (no groupId, removing globally)", address);
+                        loadBalancer.removeRegion(address);
+                    }
+                    
+                    // 清理路由表
+                    loadBalancer.removeRegionFromRouting(address);
                 }
             });
             
@@ -94,8 +109,15 @@ public class MasterServer {
             for (ZkConfig.RegionData region : serviceDiscovery.getOnlineRegions()) {
                 String regionId = region.getHost() + ":" + region.getPort();
                 String address = region.getAddress();
-                loadBalancer.addRegion(regionId, address);
-                log.info("Loaded existing region into LoadBalancer: {}", address);
+                String groupId = region.getGroupId();
+                String role = region.getRole();
+                
+                if (groupId == null || groupId.isEmpty()) groupId = "default";
+                if (role == null || role.isEmpty()) role = "STANDBY";
+                
+                loadBalancer.addRegionToGroup(groupId, role, regionId, address);
+                log.info("Loaded existing region into LoadBalancer: group='{}', role='{}', addr='{}'",
+                        groupId, role, address);
             }
             
             log.info("ServiceDiscovery initialized, LoadBalancer synced with {} regions", 
@@ -111,26 +133,12 @@ public class MasterServer {
         while (running) {
             try {
                 Socket clientSocket = serverSocket.accept();
-                threadPool.submit(new MasterHandler(clientSocket, tableToRegion, loadBalancer));
+                threadPool.submit(new MasterHandler(clientSocket, loadBalancer));
             } catch (IOException e) {
                 if (running) {
                     log.error("Error accepting connection", e);
                 }
             }
-        }
-    }
-    
-    private void removeRegionFromRouting(String regionAddress) {
-        // 从路由表中移除该 Region 的所有表
-        List<String> tablesToRemove = new ArrayList<>();
-        for (Map.Entry<String, String> entry : tableToRegion.entrySet()) {
-            if (entry.getValue().equals(regionAddress)) {
-                tablesToRemove.add(entry.getKey());
-            }
-        }
-        for (String table : tablesToRemove) {
-            tableToRegion.remove(table);
-            log.info("Removed routing: {} -> {}", table, regionAddress);
         }
     }
     
@@ -153,15 +161,15 @@ public class MasterServer {
         }
     }
     
+    /**
+     * MasterHandler —— 处理 Client 请求，使用 Group-based LoadBalancer
+     */
     private static class MasterHandler implements Runnable {
         private final Socket socket;
-        private final Map<String, String> tableToRegion;
         private final LoadBalancer loadBalancer;
         
-        public MasterHandler(Socket socket, Map<String, String> tableToRegion, 
-                            LoadBalancer loadBalancer) {
+        public MasterHandler(Socket socket, LoadBalancer loadBalancer) {
             this.socket = socket;
-            this.tableToRegion = tableToRegion;
             this.loadBalancer = loadBalancer;
         }
         
@@ -194,45 +202,63 @@ public class MasterServer {
                 
                 Message response;
                 if (requestType == NetworkConst.RequestType.GET_REGION) {
-                    // 优先从路由表获取已知的表-Region映射
-                    String regionAddr = tableToRegion.get(tableName);
+                    // 优先查找已有的 表->Group 映射
+                    String groupInfo = loadBalancer.getGroupInfoForTable(tableName);
                     
-                    // 如果路由表中没有，使用 LoadBalancer 进行智能选择
-                    if (regionAddr == null) {
-                        regionAddr = loadBalancer.getNextRegion(tableName);
+                    if (groupInfo == null) {
+                        // 没有映射，兼容旧行为：返回一个 Master 地址
+                        String regionAddr = loadBalancer.getNextRegion(tableName);
+                        if (regionAddr == null) {
+                            sendErrorResponse(dos, msg.getRequestId(), "No available region");
+                            return;
+                        }
+                        selectedRegion = regionAddr;
+                        // 返回单地址格式（向后兼容）
+                        groupInfo = regionAddr;
+                    } else {
+                        // 从 groupInfo 中提取 master 地址用于统计
+                        String masterAddr = loadBalancer.getMasterAddressForTable(tableName);
+                        if (masterAddr != null) {
+                            selectedRegion = masterAddr;
+                        }
                     }
                     
-                    if (regionAddr == null) {
-                        sendErrorResponse(dos, msg.getRequestId(), "No available region");
-                        return;
-                    }
-                    
-                    selectedRegion = regionAddr;
-                    loadBalancer.incrementConnections(selectedRegion);
+                    loadBalancer.incrementConnections(selectedRegion != null ? selectedRegion : "");
                     response = Message.createResponse(
                         msg.getRequestId(),
                         NetworkConst.Status.SUCCESS,
-                        regionAddr.getBytes()
+                        groupInfo.getBytes()
                     );
                     
                 } else if (requestType == NetworkConst.RequestType.CREATE_TABLE) {
-                    // 使用 LoadBalancer 选择最优的 Region 来分配新表
-                    String assignedRegion = loadBalancer.getNextRegion(tableName);
-                    if (assignedRegion == null) {
-                        sendErrorResponse(dos, msg.getRequestId(), "No available region");
+                    // 使用 LoadBalancer 选择一个 RegionGroup
+                    String groupId = loadBalancer.selectGroup(tableName);
+                    if (groupId == null) {
+                        sendErrorResponse(dos, msg.getRequestId(), "No available region group");
                         return;
                     }
-                    tableToRegion.put(tableName, assignedRegion);
-                    selectedRegion = assignedRegion;
+                    
+                    // 登记 表 -> Group 映射
+                    loadBalancer.assignTableToGroup(tableName, groupId);
+                    
+                    // 获取该 Group 的 Master 地址（建表需要路由到 Master）
+                    String masterAddr = loadBalancer.getMasterAddressForTable(tableName);
+                    if (masterAddr == null) {
+                        sendErrorResponse(dos, msg.getRequestId(), "No master in selected group: " + groupId);
+                        return;
+                    }
+                    
+                    selectedRegion = masterAddr;
                     loadBalancer.incrementConnections(selectedRegion);
                     
-                    log.info("Table '{}' assigned to region '{}' via LoadBalancer (strategy: {})",
-                            tableName, assignedRegion, loadBalancer.getCurrentStrategy());
+                    log.info("Table '{}' assigned to group '{}' (master={}), strategy={}",
+                            tableName, groupId, masterAddr, loadBalancer.getCurrentStrategy());
                     
+                    // 返回 Master 地址（建表操作只走 Master）
                     response = Message.createResponse(
                         msg.getRequestId(),
                         NetworkConst.Status.SUCCESS,
-                        assignedRegion.getBytes()
+                        masterAddr.getBytes()
                     );
                     
                 } else {

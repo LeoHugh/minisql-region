@@ -184,6 +184,10 @@ public class DatabaseManager implements AutoCloseable {
         if (table == null) {
             return "Error: Table not found: " + parsed.tableName;
         }
+
+        if (parsed.hasJoin) {
+            return executeJoin(parsed, table);
+        }
         
         if (parsed.primaryKeyValue != null) {
             Row row = storage.get(parsed.primaryKeyValue.getBytes());
@@ -192,8 +196,59 @@ public class DatabaseManager implements AutoCloseable {
             }
             return formatRow(row);
         } else {
-            return "Only point queries are supported in this version";
+            // Support full table scan for queries without WHERE
+            StringBuilder sb = new StringBuilder();
+            List<Map.Entry<byte[], Row>> allRows = storage.scanAll();
+            for (Map.Entry<byte[], Row> entry : allRows) {
+                sb.append(formatRow(entry.getValue())).append("\n");
+            }
+            if (sb.length() == 0) return "Empty result";
+            return sb.toString().trim();
         }
+    }
+
+    private String executeJoin(SimpleParser.ParsedSQL parsed, Table leftTable) throws IOException {
+        Table rightTable = tables.get(parsed.joinTableName);
+        if (rightTable == null) {
+            return "Error: Join table not found: " + parsed.joinTableName;
+        }
+        
+        // Extract left and right column names from join condition (e.g. t1.id = t2.user_id)
+        String leftCol = parsed.joinConditionLeft;
+        String rightCol = parsed.joinConditionRight;
+        if (leftCol.contains(".")) leftCol = leftCol.split("\\.")[1];
+        if (rightCol.contains(".")) rightCol = rightCol.split("\\.")[1];
+
+        // Ensure we correctly identify which column belongs to which table
+        if (parsed.joinConditionLeft.startsWith(rightTable.getName() + ".")) {
+            // Swap if they are in reverse order
+            String temp = leftCol;
+            leftCol = rightCol;
+            rightCol = temp;
+        }
+
+        StringBuilder resultStr = new StringBuilder();
+        List<Map.Entry<byte[], Row>> allRows = storage.scanAll();
+        
+        // Very basic Nested Loop Join
+        for (Map.Entry<byte[], Row> leftEntry : allRows) {
+            Row leftRow = leftEntry.getValue();
+            Object leftVal = leftRow.get(leftCol);
+            
+            if (leftVal == null) continue;
+            
+            for (Map.Entry<byte[], Row> rightEntry : allRows) {
+                Row rightRow = rightEntry.getValue();
+                Object rightVal = rightRow.get(rightCol);
+                
+                if (rightVal != null && leftVal.toString().equals(rightVal.toString())) {
+                    resultStr.append(formatRow(leftRow)).append(" | ").append(formatRow(rightRow)).append("\n");
+                }
+            }
+        }
+        
+        if (resultStr.length() == 0) return "Empty result";
+        return resultStr.toString().trim();
     }
     
     private String delete(SimpleParser.ParsedSQL parsed) throws IOException {

@@ -13,24 +13,23 @@ index
 datapath//indexpath
 
 
-## 自定义网络通信与静态路由
-mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.master.MasterServer"
-mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8888"
-mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8889"
-mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.client.Client"
-
 ## Zookeeper 集群化与动态上下线
 cd /zookeeper
 ./zookeeper/bin/zkServer.sh start
 ./zookeeper/bin/zkServer.sh stop
+
+## 启动 Master (路由及服务发现)
 mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.master.MasterServer"
-mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8888"
-mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8889"
 
-mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8888 127.0.0.1 master"
+## 启动 Region 分片组 Group-1 (一主一从)
+mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8888 127.0.0.1 master group-1"
+mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8889 127.0.0.1 slave group-1"
 
-mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8889 127.0.0.1 slave"
+## 启动 Region 分片组 Group-2 (一主一从)
+mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8890 127.0.0.1 master group-2"
+mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.RegionMain" -Dexec.args="8891 127.0.0.1 slave group-2"
 
+## 启动 Client 执行 SQL
 mvn exec:java -Dexec.mainClass="com.yourname.minisql.region.client.Client"
 ## 测试
 HATEST : 测试调度系统的可用性
@@ -56,42 +55,22 @@ zkclient与集群交互的能力:CRUD,连接
 
 -- 基础建表（使用默认列）
 CREATE TABLE users;
-
 -- 指定列定义
-CREATE TABLE students (id STRING, name STRING, age INT, score DOUBLE);
-
--- 多表创建
-CREATE TABLE orders (id STRING, product STRING, quantity INT);
-CREATE TABLE products (id STRING, price DOUBLE, stock INT);
-
-
+CREATE TABLE users (id STRING, name STRING, age INT, score DOUBLE);
 -- 插入单条数据
 INSERT INTO users (id, name, age) VALUES ('1', 'Alice', '25');
-
--- 插入多条数据
-INSERT INTO students (id, name, age) VALUES ('1', 'Bob', '20');
-INSERT INTO students (id, name, age) VALUES ('2', 'Charlie', '22');
-INSERT INTO students (id, name, age) VALUES ('3', 'Diana', '21');
-
+INSERT INTO users (id, name, age) VALUES ('2', 'Charlie', '22');
 -- 插入带浮点数的数据
 INSERT INTO products (id, price, stock) VALUES ('p1', '99.99', '100');
-
 -- 点查询（根据主键）
 SELECT * FROM users WHERE id = '1';
-
 -- 查询不存在的记录
 SELECT * FROM users WHERE id = '999';
-
-
 -- 更新单列
 UPDATE users SET name = 'Alice Updated' WHERE id = '1';
-
 -- 更新多列
 UPDATE users SET name = 'Alice New', age = '26' WHERE id = '1';
-
-
 -- 删除单条
 DELETE FROM users WHERE id = '1';
-
 -- 删除不存在的记录
 DELETE FROM users WHERE id = '999';

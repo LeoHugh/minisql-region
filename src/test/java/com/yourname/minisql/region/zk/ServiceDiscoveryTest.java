@@ -26,11 +26,11 @@ public class ServiceDiscoveryTest {
         
         // 清理旧的注册节点
         try {
-            zkClient.deleteNode(ZkConfig.ZK_REGIONS_PATH);
+            zkClient.deleteNode(ZkConfig.ZK_GROUPS_PATH);
         } catch (Exception e) {
             // 忽略
         }
-        zkClient.ensurePathExists(ZkConfig.ZK_REGIONS_PATH);
+        zkClient.ensurePathExists(ZkConfig.ZK_GROUPS_PATH);
         
         serviceDiscovery = new ServiceDiscovery();
         serviceDiscovery.start();
@@ -45,7 +45,7 @@ public class ServiceDiscoveryTest {
         }
         // 清理测试节点
         try {
-            zkClient.deleteNode(ZkConfig.ZK_REGIONS_PATH);
+            zkClient.deleteNode(ZkConfig.ZK_GROUPS_PATH);
         } catch (Exception e) {
             // 忽略
         }
@@ -59,7 +59,7 @@ public class ServiceDiscoveryTest {
         
         // 注册 3 个 Region
         for (int i = 1; i <= 3; i++) {
-            RegionRegistry registry = new RegionRegistry("localhost", 8880 + i);
+            RegionRegistry registry = new RegionRegistry("localhost", 8880 + i, "test-group");
             registry.register();
             System.out.println("注册 Region: localhost:" + (8880 + i));
         }
@@ -86,7 +86,7 @@ public class ServiceDiscoveryTest {
         
         // 注册 3 个 Region
         for (int i = 1; i <= 3; i++) {
-            RegionRegistry registry = new RegionRegistry("localhost", 8890 + i);
+            RegionRegistry registry = new RegionRegistry("localhost", 8890 + i, "test-group");
             registry.register();
         }
         
@@ -115,7 +115,7 @@ public class ServiceDiscoveryTest {
         
         // 注册 3 个 Region
         for (int i = 1; i <= 3; i++) {
-            RegionRegistry registry = new RegionRegistry("localhost", 8900 + i);
+            RegionRegistry registry = new RegionRegistry("localhost", 8900 + i, "test-group");
             registry.register();
         }
         
@@ -162,7 +162,7 @@ public class ServiceDiscoveryTest {
         });
         
         // 注册新 Region
-        RegionRegistry registry = new RegionRegistry("localhost", 9991);
+        RegionRegistry registry = new RegionRegistry("localhost", 9991, "test-group");
         registry.register();
         
         // 等待通知
@@ -194,7 +194,7 @@ public class ServiceDiscoveryTest {
         });
         
         // 注册 Region
-        RegionRegistry registry = new RegionRegistry("localhost", 9992);
+        RegionRegistry registry = new RegionRegistry("localhost", 9992, "test-group");
         registry.register();
         
         Thread.sleep(1000);

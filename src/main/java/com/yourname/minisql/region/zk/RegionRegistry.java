@@ -22,15 +22,19 @@ public class RegionRegistry implements Closeable {
     private final ZkClientManager zkClient;
     private final String host;
     private final int port;
-    private final String nodePath;
+    private final String groupId;
+    private final String nodePath;        // 分组内的节点路径
+    private final String groupRegionsPath; // 分组内的 regions 父路径
     private CuratorCache cache;
     private final Map<String, ZkConfig.RegionData> otherRegions = new ConcurrentHashMap<>();
     
-    public RegionRegistry(String host, int port) {
+    public RegionRegistry(String host, int port, String groupId) {
         this.zkClient = ZkClientManager.getInstance();
         this.host = host;
         this.port = port;
-        this.nodePath = ZkConfig.ZK_REGIONS_PATH + "/region-" + port;
+        this.groupId = groupId;
+        this.groupRegionsPath = ZkConfig.getGroupRegionsPath(groupId);
+        this.nodePath = groupRegionsPath + "/region-" + port;
     }
     
     /**
@@ -42,15 +46,16 @@ public class RegionRegistry implements Closeable {
             zkClient.init();
         }
         
-        // 创建节点数据
+        // 创建节点数据（包含 groupId）
         ZkConfig.RegionData data = new ZkConfig.RegionData(host, port, "online");
+        data.setGroupId(groupId);
         byte[] nodeData = JSON.toJSONBytes(data);
         
-        // 注册临时节点
+        // 注册临时节点到分组路径
         zkClient.createEphemeralNode(nodePath, nodeData);
-        log.info("Region registered to ZK: {} -> {}", nodePath, data);
+        log.info("Region registered to ZK (group={}): {} -> {}", groupId, nodePath, data);
         
-        // 开始监听其他 Region
+        // 开始监听同组其他 Region
         watchOtherRegions();
     }
     
@@ -58,7 +63,7 @@ public class RegionRegistry implements Closeable {
      * 监听其他 Region 的变化（用于 Region 间感知，可选）
      */
     private void watchOtherRegions() throws Exception {
-        String watchPath = ZkConfig.ZK_REGIONS_PATH;
+        String watchPath = groupRegionsPath;
         CuratorFramework client = zkClient.getClient();
         
         cache = CuratorCache.build(client, watchPath);
@@ -90,9 +95,13 @@ public class RegionRegistry implements Closeable {
     
     private void handleRegionAdd(ChildData node) {
         try {
-            ZkConfig.RegionData data = JSON.parseObject(node.getData(), ZkConfig.RegionData.class);
-            otherRegions.put(node.getPath(), data);
-            log.info("New region online: {} ({})", node.getPath(), data);
+            byte[] dataBytes = node.getData();
+            if (dataBytes == null || dataBytes.length == 0) return;
+            ZkConfig.RegionData data = ZkConfig.RegionData.fromBytes(dataBytes);
+            if (data != null) {
+                otherRegions.put(node.getPath(), data);
+                log.info("New region online: {} ({})", node.getPath(), data);
+            }
         } catch (Exception e) {
             log.error("Failed to parse region data", e);
         }
@@ -108,10 +117,12 @@ public class RegionRegistry implements Closeable {
                      (oldNode != null ? oldNode.getPath() : null);
         if (path == null) return;
         
-        if (newNode != null && newNode.getData() != null) {
-            ZkConfig.RegionData newData = JSON.parseObject(newNode.getData(), ZkConfig.RegionData.class);
-            otherRegions.put(path, newData);
-            log.info("Region updated: {} -> {}", path, newData);
+        if (newNode != null && newNode.getData() != null && newNode.getData().length > 0) {
+            ZkConfig.RegionData newData = ZkConfig.RegionData.fromBytes(newNode.getData());
+            if (newData != null) {
+                otherRegions.put(path, newData);
+                log.info("Region updated: {} -> {}", path, newData);
+            }
         } else if (oldNode != null) {
             otherRegions.remove(path);
             log.info("Region removed: {}", path);
@@ -131,6 +142,7 @@ public class RegionRegistry implements Closeable {
      */
     public void updateStatus(String status) throws Exception {
         ZkConfig.RegionData data = new ZkConfig.RegionData(host, port, status);
+        data.setGroupId(groupId);
         byte[] nodeData = JSON.toJSONBytes(data);
         
         if (zkClient.getClient().checkExists().forPath(nodePath) != null) {
@@ -154,11 +166,13 @@ public class RegionRegistry implements Closeable {
      * 更新 ZK 中的复制元数据（角色 + 复制端口）
      */
     public void updateReplicationInfo(String role, int replicationPort) {
+        System.out.println("TEST UPDATE REPLICATION INFO " + role + " " + replicationPort);
         try {
             // 构建带有复制信息的节点数据
             ZkConfig.RegionData data = new ZkConfig.RegionData(host, port, "online");
             data.setRole(role);
             data.setReplicationPort(replicationPort);
+            data.setGroupId(groupId);
             
             byte[] nodeData = JSON.toJSONBytes(data);
             
@@ -176,30 +190,31 @@ public class RegionRegistry implements Closeable {
     }
 
     /**
-     * 从 ZK 自动发现 Master 的复制地址
+     * 从 ZK 自动发现同组 Master 的复制地址
+     * 只在当前 groupId 对应的路径下查找
      */
     public String discoverMasterReplicationAddress() {
         try {
-            log.info("Attempting to discover master replication address from ZooKeeper...");
-            java.util.List<String> children = zkClient.getChildren(ZkConfig.ZK_REGIONS_PATH);
+            log.info("Attempting to discover master replication address from ZooKeeper for group '{}'...", groupId);
+            java.util.List<String> children = zkClient.getChildren(groupRegionsPath);
             
             for (String child : children) {
-                String path = ZkConfig.ZK_REGIONS_PATH + "/" + child;
+                String path = groupRegionsPath + "/" + child;
                 byte[] data = zkClient.getNodeData(path);
                 if (data != null && data.length > 0) {
                     ZkConfig.RegionData regionData = ZkConfig.RegionData.fromBytes(data);
                     if (regionData != null && "MASTER".equalsIgnoreCase(regionData.getRole()) 
                             && regionData.getReplicationPort() > 0) {
                         String address = regionData.getHost() + ":" + regionData.getReplicationPort();
-                        log.info("Discovered master replication address from ZK: {}", address);
+                        log.info("Discovered master replication address from ZK (group={}): {}", groupId, address);
                         return address;
                     }
                 }
             }
             
-            log.warn("No MASTER region found in ZooKeeper");
+            log.warn("No MASTER region found in ZooKeeper for group '{}'", groupId);
         } catch (Exception e) {
-            log.error("Failed to discover master from ZooKeeper", e);
+            log.error("Failed to discover master from ZooKeeper for group '{}'", groupId, e);
         }
         return null;
     }

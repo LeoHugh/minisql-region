@@ -1,7 +1,7 @@
 package com.yourname.minisql.region.zk;
 
 import com.yourname.minisql.region.client.Client;
-import com.yourname.minisql.region.master.MasterServer;
+import com.yourname.minisql.region.ha.masterengine.MasterServer;
 import com.yourname.minisql.region.network.RegionServer;
 import com.yourname.minisql.region.manager.DatabaseManager;
 import org.junit.jupiter.api.*;

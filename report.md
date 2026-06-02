@@ -46,41 +46,83 @@ private void recordSuccess(String regionAddr, long responseTime) //暂时还未�
 public String GetStatus()
 ```
 ### master层
-为了提高系统的高可用性与容错能力，系统设计了 Active-Standby 的双主高可用架构。`HAMasterServer` 整合了下述核心组件，使得控制面在发生单点故障时能够秒级自愈：
+为了提高系统的高可用性与容错能力，系统设计了 Active-Standby 的双主高可用架构。`HAMasterServer` 作为编排层，通过 `MasterElection` 实现 Leader 选举，当选为 Leader 后按序启动四个核心组件：`MetadataManager`（元数据持久化）、`TopologyManager`（集群拓扑管理与故障检测）、`LoadBalancer`（无状态策略选择器）和 `MasterServer`（网络 Facade），使得控制面在发生单点故障时能够秒级自愈：
 
 ![alt text](image-2.png)
 
+**HAMasterServer（编排层）**
+*   **职责**：编排 Master 节点的完整生命周期，协调所有子组件的启动与停止顺序。
+*   **选举联动**：通过 `MasterElection.MasterStateListener` 回调驱动：
+    *   `onBecomeLeader()`：按序创建并启动 `MetadataManager` → `TopologyManager` → `LoadBalancer` → `MasterServer`，同时向 ZK 写入临时节点 `/minisql/master/active` 暴露自身地址。
+    *   `onBecomeFollower()`：反序停止所有组件，并从 ZK 删除 `/active` 节点。
+    *   `onMasterFailed()`：网络分区时触发，立即停止引擎，避免脑裂。
+*   **MasterServer 线程隔离**：`MasterServer` 的 Socket accept 循环在独立线程 `MasterServer-{port}` 中运行，避免阻塞选举线程。
+
 **MasterElection（Master 选举模块）**
-*   **实现原理**：基于 Apache Curator 的 `LeaderSelector` 机制实现公平选举。
-*   **核心生命周期监听**：实现 `LeaderSelectorListener` 接口，定义内部接口 `MasterStateListener`。
+*   **实现原理**：基于 Apache Curator 的 `LeaderSelector` 机制实现公平选举，并通过 `autoRequeue()` 实现失去领导权后自动重新排队。
+*   **核心生命周期监听**：实现 `LeaderSelectorListener` 接口，定义内部接口 `MasterStateListener`（含 `onBecomeLeader()`、`onBecomeFollower()`、`onMasterFailed()` 三个回调）。
 *   **方法结构**：
     *   `public void start()`：启动选举，将当前 MasterId 加入到 `/minisql/master/election` 抢占队列中。
-    *   `public void takeLeadership(CuratorFramework client)`：当选为 Leader 时的回调。当选后向 ZK 写入临时节点 `/minisql/master/active` 暴露自身地址，并维持领导权，直至网络中断或主动停止。
-    *   `public void stateChanged(...)`：监听连接状态（`LOST` / `SUSPENDED`），在网络分区时自动放弃领导权，避免脑裂（Split-Brain）。
+    *   `public void takeLeadership(CuratorFramework client)`：当选为 Leader 时的回调。当选后通过 `stateListener.onBecomeLeader()` 通知 `HAMasterServer` 启动引擎，随后通过 `while (isLeader && !stopped) { Thread.sleep(1000); }` 循环持有领导权，直至主动放弃或网络中断。
+    *   `public void stateChanged(...)`：监听连接状态（`LOST` / `SUSPENDED`），在网络分区时将 `isLeader` 置为 `false` 并调用 `onMasterFailed()`，避免脑裂（Split-Brain）；`RECONNECTED` 时仅记录日志。
 
-**LoadBalance（负载均衡器）**
-*   **多种分发策略**：内置 `LoadBalanceStrategy` 枚举，支持 5 种工业级均衡算法：
-    *   `ROUND_ROBIN` (轮询)、`RANDOM` (随机)、`LEAST_CONN` (最少活动连接，自适应调度)。
-    *   `WEIGHTED` (加权轮询，匹配异构机器性能)、`HASH` (哈希一致性，实现表亲和性)。
+**MetadataManager（元数据管理器）**
+*   **职责**：管理 `table → groupId` 的映射关系，并通过 ZooKeeper 持久化，实现 Master 重启后映射自动恢复。
+*   **ZK 路径结构**：`/minisql/metadata/tables/<tableName>` → data = `groupId`（持久节点）。
+*   **核心方法**：
+    *   `public void start()`：确保 ZK 路径 `/minisql/metadata/tables` 存在，遍历所有子节点加载已有的 `table→group` 映射到内存缓存 `ConcurrentHashMap<String, String> tableToGroup`。
+    *   `public void assignTableToGroup(String tableName, String groupId)`：同时写 ZK 持久节点和更新内存缓存，保证映射的持久化与一致性。
+    *   `public void removeGroupFromRouting(String groupId)`：当某个 Group 下线时，清理指向该 Group 的所有表映射（ZK 节点 + 缓存联动删除）。
+    *   `public Map<String, String> getTableToGroup()`：返回映射的不可变快照（`Collections.unmodifiableMap`）。
+
+**TopologyManager（集群拓扑管理器）**
+*   **职责**：统一管理 Region 上下线、分组拓扑与故障检测。持有 `ConcurrentHashMap<String, RegionGroup> groupMap`（所有 RegionGroup 的全量视图），作为 `ServiceDiscovery.RegionChangeListener` 自动同步 ZK 事件。
+*   **启动流程**：
+    1.  创建 `ServiceDiscovery` 实例，监听 `/minisql/groups` 下所有 Group 的 Region 变化。
+    2.  创建 `RegionFailover` 实例，注册为 `ServiceDiscovery` 的监听器，自动接收 Region 上下线事件以维护健康检查列表。
+    3.  将 `TopologyManager` 自身也注册为 `ServiceDiscovery` 监听器，实现 `onRegionOnline()`/`onRegionOffline()` 回调以同步 `groupMap`。
+    4.  启动 `ServiceDiscovery`（加载已有节点 + 开始 `CuratorCache` 递归监听）。
+    5.  兜底遍历 `ServiceDiscovery.getOnlineRegions()` 填充 `groupMap`，防止 CuratorCache 事件遗漏。
+    6.  启动 `RegionFailover` 的定时健康检查任务。
+*   **拓扑同步逻辑（`addRegionToGroup`）**：从 `ZkConfig.RegionData` 中提取 `groupId` 和 `role`（`MASTER`/`SLAVE`/`STANDBY`），通过 `groupMap.computeIfAbsent()` 获取或创建 `RegionGroup`，将节点封装为 `RegionNode` 按角色放入 Master 槽位或 Slaves 列表。
+*   **可用性管理**：`markAvailable(String address, boolean available)` 遍历所有 Group 查找匹配地址的 `RegionNode` 并更新其可用状态。
+*   **连接计数**：`incrementConnections()` / `decrementConnections()` 用于追踪每个节点的活跃连接数，为 `LEAST_CONN` 策略提供数据支撑。
+
+**ServiceDiscovery（服务发现模块）**
+*   **职责**：Master 端的 ZK 监听器，感知所有 Group 下的 Region 变化，并通过 `RegionChangeListener` 接口通知下游（`TopologyManager` 和 `RegionFailover`）。
+*   **ZK 路径结构**：递归监听 `/minisql/groups/<groupId>/regions/region-<port>`。
+*   **监听机制**：使用 `CuratorCache` 在 `/minisql/groups` 上进行树级递归监听，通过 `isRegionNodePath(path)` 过滤仅处理叶子 Region 节点，并通过 `extractGroupIdFromPath(path)` 从路径中提取分组 ID。
+*   **数据解析兼容性**：`parseRegionData()` 支持三种格式——JSON 对象（`RegionData`）、纯地址字符串 `"host:port"`、以及 JSON-like 手动提取，保证不同版本节点的兼容。
+*   **辅助路由方法**：提供 `getNextRegionRoundRobin()`、`getRandomRegion()`、`getRegionByTable(tableName)` 等简单路由策略（基于 `onlineRegions` 列表），供测试和简单场景使用。
+
+**LoadBalancer（无状态负载均衡器）**
+*   **设计理念**：纯无状态策略选择器，不持有任何集群拓扑或元数据状态。所有拓扑数据（`groupMap`）由 `TopologyManager` 管理，所有元数据映射（`tableToGroup`）由 `MetadataManager` 管理，`LoadBalancer` 的方法接收这些数据作为参数，返回选择结果。
+*   **负载均衡策略**：内置 `LoadBalanceStrategy` 枚举，支持 5 种均衡算法：
+    *   `ROUND_ROBIN`（轮询，默认策略）、`RANDOM`（随机）、`LEAST_CONN`（最少活动连接）。
+    *   `WEIGHTED`（加权轮询）、`HASH`（哈希一致性，实现表亲和性）。
 *   **核心接口**：
-    *   `public void addRegion(String id, String address)` / `removeRegion`：动态增删可用节点。
-    *   `public String getNextRegion(String tableName)`：根据当前策略决策，返回负责该表的 Region 物理地址。
-    *   `public void recordRequest(String address, long responseTime, boolean success)`：收集时延和成功率，为自适应路由提供元数据支撑。
+    *   `public String selectGroup(Map<String, RegionGroup> groupMap, String tableName)`：建表时，从 `groupMap` 中筛选有可用 Master 的分组，根据当前策略选择一个 `groupId` 返回。
+    *   `public String getGroupInfoForTable(String tableName, Map<String, String> tableToGroup, Map<String, RegionGroup> groupMap)`：查询时，通过 `tableToGroup` 找到表所属 Group，再从 `groupMap` 获取 `RegionGroup` 并调用 `toClientString()` 序列化为 `"groupId|master=host:port|slaves=host:port,..."` 格式下发给 Client。
 
-**MasterServer（路由与服务发现协调节点）**
-*   **职责**：充当控制面网关，基于 `ServiceDiscovery` 动态感知所有 RegionServer。
+**RegionGroup 与 RegionNode（拓扑数据模型）**
+*   **`RegionGroup`**：一个 Replica Group（分片），包含一个 `master`（`RegionNode`）和多个 `slaves`（`CopyOnWriteArrayList<RegionNode>`）。提供 `hasMaster()`（判断是否有可用 Master）、`removeByAddress()`（按地址移除任意角色节点，空 Group 可被 `TopologyManager` 自动清理）、`toClientString()`（序列化为 Client 可解析的字符串格式）等方法。
+*   **`RegionNode`**：一个 Region 进程在集群中的逻辑表示，包含 `id`、`address`、`weight`（权重）、`activeConnections`（活跃连接计数）、`lastHeartbeat`（最后心跳时间戳）、`available`（可用标志）等属性。
+
+**MasterServer（网络 Facade）**
+*   **职责**：仅负责 Socket 监听和请求分发，业务逻辑完全委托给三个 Manager。
+*   **通信架构**：`BIO + CachedThreadPool`，主线程循环 `serverSocket.accept()`，每个连接由独立的 `MasterHandler` 在线程池中处理。
 *   **路由解析接口**：
-    *   `GET_REGION`：客户端发送 SQL 读写前，请求 Master 获取表所在的 Region 地址。
-    *   `CREATE_TABLE`：建表请求，Master 调用 `LoadBalancer` 决策目标物理节点，在路由表 `tableToRegion` 中建立静态路由记录并返回给客户端。
-*   **自适应节点剔除**：绑定 ZK 监听器，在 `onRegionOffline` 触发时自动将该节点名下的所有数据表路由关系解除。
+    *   `GET_REGION`：通过 `LoadBalancer.getGroupInfoForTable()` 联合查询 `MetadataManager.getTableToGroup()` 和 `TopologyManager.getGroupMap()`，返回表所在 Group 的完整信息（含 Master 和 Slaves 地址），同时通过 `TopologyManager.incrementConnections()` 追踪连接计数。
+    *   `CREATE_TABLE`：通过 `LoadBalancer.selectGroup()` 从 `TopologyManager.getGroupMap()` 中选择目标分组，再通过 `MetadataManager.assignTableToGroup()` 持久化 `table→group` 映射到 ZK，最后返回该 Group 的 Master 地址给 Client。
 
 **RegionFailover（Region 故障检测与容灾模块）**
-*   **故障发现机制**：采用“ZK 节点变更监听”与“Socket 重试探针”双重机制。
-*   **核心逻辑**：
-    *   在 Active Master 启动时拉起后台单线程定时调度器 `healthChecker`（每 5 秒执行一次）。
-    *   通过 `checkRegionAlive(address)` 尝试与各 RegionServer 建立 Socket 短连接。
-    *   当连接失败次数超过 `MAX_RETRY_COUNT` (3次) 时，触发 `onRegionFailed` 监听器通知，调用负载均衡器 `markAvailable(address, false)` 将其摘除，并在路由表实施应急降级。
-
+*   **双重故障发现机制**：同时实现 `ServiceDiscovery.RegionChangeListener` 接口（复用 ZK 监听）和 TCP 主动健康检查（可在 ZK 临时节点过期前提前发现 Region 进程假死）。
+*   **ZK 监听联动**：`onRegionOnline()` 自动将新 Region 注册到健康检查列表 `regionHealthMap`；`onRegionOffline()` 自动将其移除，避免对已下线节点继续探测。
+*   **TCP 主动健康检查**：
+    *   后台单线程定时调度器 `healthChecker`（每 `HEALTH_CHECK_INTERVAL_SEC=5` 秒执行一次）。
+    *   通过 `checkRegionAlive(address)` 建立 Socket 短连接（超时 `RETRY_TIMEOUT_MS=3000ms`），探测 Region 进程是否存活。
+    *   当连续失败次数达到 `MAX_RETRY_COUNT=3` 时，触发 `FailoverListener.onRegionFailed()` 回调，通知 `TopologyManager.markAvailable(address, false)` 将该节点标记为不可用（不从 `groupMap` 中移除，保留恢复能力）。
+    *   当之前标记为故障的节点重新可达时，触发 `onRegionRecovered()` 回调，恢复可用状态。
 
 ### region层
 Region 层是底层的物理存储与查询执行引擎，实现了读写高性能与数据强可靠：

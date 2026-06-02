@@ -1,5 +1,6 @@
 package com.yourname.minisql.region.ha;
 
+
 import com.yourname.minisql.region.client.Client;
 import com.yourname.minisql.region.manager.DatabaseManager;
 import com.yourname.minisql.region.network.RegionServer;

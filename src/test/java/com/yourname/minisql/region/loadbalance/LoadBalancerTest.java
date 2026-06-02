@@ -4,6 +4,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -17,39 +19,39 @@ public class LoadBalancerTest {
         loadBalancer = new LoadBalancer();
     }
 
-    @Test
-    @DisplayName("Test node addition and group creation")
-    public void testAddRegionToGroup() {
-        loadBalancer.addRegionToGroup("group1", "MASTER", "node1", "localhost:8801");
-        loadBalancer.addRegionToGroup("group1", "SLAVE", "node2", "localhost:8802");
-
-        Map<String, RegionGroup> groups = loadBalancer.getGroupMap();
-        assertEquals(1, groups.size());
-        
-        RegionGroup group1 = groups.get("group1");
-        assertNotNull(group1);
-        assertNotNull(group1.getMaster());
-        assertEquals("localhost:8801", group1.getMaster().getAddress());
-        assertEquals(1, group1.getSlaves().size());
-        assertEquals("localhost:8802", group1.getSlaves().get(0).getAddress());
+    // 辅助方法：快速构建模拟的 RegionGroup 状态
+    private RegionGroup createGroup(String groupId, String masterAddr, String[] slaveAddrs) {
+        RegionGroup group = new RegionGroup(groupId);
+        if (masterAddr != null) {
+            group.setMaster(new RegionNode("m-" + groupId, masterAddr));
+        }
+        if (slaveAddrs != null) {
+            for (int i = 0; i < slaveAddrs.length; i++) {
+                group.addSlave(new RegionNode("s-" + groupId + "-" + i, slaveAddrs[i]));
+            }
+        }
+        return group;
     }
 
     @Test
     @DisplayName("Test round robin strategy for group selection")
     public void testRoundRobinStrategy() {
-        loadBalancer.addRegionToGroup("group1", "MASTER", "node1", "localhost:8801");
-        loadBalancer.addRegionToGroup("group2", "MASTER", "node2", "localhost:8802");
+        // 使用 LinkedHashMap 保证迭代顺序的一致性，以确保轮询结果符合预期
+        Map<String, RegionGroup> groupMap = new LinkedHashMap<>();
+        groupMap.put("group1", createGroup("group1", "localhost:8801", null));
+        groupMap.put("group2", createGroup("group2", "localhost:8802", null));
 
         loadBalancer.setStrategy(LoadBalancer.LoadBalanceStrategy.ROUND_ROBIN);
 
-        String groupA = loadBalancer.selectGroup("table1");
-        String groupB = loadBalancer.selectGroup("table2");
-        String groupC = loadBalancer.selectGroup("table3");
+        // 使用无状态方法
+        String groupA = loadBalancer.selectGroup(groupMap, "table1");
+        String groupB = loadBalancer.selectGroup(groupMap, "table2");
+        String groupC = loadBalancer.selectGroup(groupMap, "table3");
 
         assertNotNull(groupA);
         assertNotNull(groupB);
         assertNotNull(groupC);
-        
+
         assertNotEquals(groupA, groupB, "Consecutive calls should pick different groups");
         assertEquals(groupA, groupC, "Third call should wrap around to first group");
     }
@@ -57,61 +59,52 @@ public class LoadBalancerTest {
     @Test
     @DisplayName("Test hash based strategy for group selection")
     public void testHashStrategy() {
-        loadBalancer.addRegionToGroup("group1", "MASTER", "node1", "localhost:8801");
-        loadBalancer.addRegionToGroup("group2", "MASTER", "node2", "localhost:8802");
+        Map<String, RegionGroup> groupMap = new LinkedHashMap<>();
+        groupMap.put("group1", createGroup("group1", "localhost:8801", null));
+        groupMap.put("group2", createGroup("group2", "localhost:8802", null));
 
         loadBalancer.setStrategy(LoadBalancer.LoadBalanceStrategy.HASH);
 
-        String groupForTableA = loadBalancer.selectGroup("tableA");
-        String groupForTableA_Again = loadBalancer.selectGroup("tableA");
+        String groupForTableA = loadBalancer.selectGroup(groupMap, "tableA");
+        String groupForTableA_Again = loadBalancer.selectGroup(groupMap, "tableA");
 
         assertEquals(groupForTableA, groupForTableA_Again, "Hash strategy should return same group for same table name");
     }
 
     @Test
-    @DisplayName("Test routing assignment")
-    public void testTableToGroupRouting() {
-        loadBalancer.addRegionToGroup("group1", "MASTER", "node1", "localhost:8801");
-        loadBalancer.assignTableToGroup("users", "group1");
+    @DisplayName("Test retrieving group info")
+    public void testGetGroupInfo() {
+        Map<String, RegionGroup> groupMap = new LinkedHashMap<>();
+        groupMap.put("group1", createGroup("group1", "localhost:8801", new String[]{"localhost:8802", "localhost:8803"}));
 
-        String masterAddress = loadBalancer.getMasterAddressForTable("users");
-        assertEquals("localhost:8801", masterAddress);
+        Map<String, String> tableToGroup = new HashMap<>();
+        tableToGroup.put("users", "group1");
 
-        String nextRegion = loadBalancer.getNextRegion("users");
-        assertEquals("localhost:8801", nextRegion);
+        // 使用无状态查询方法
+        String info = loadBalancer.getGroupInfoForTable("users", tableToGroup, groupMap);
+        assertNotNull(info);
+        assertTrue(info.startsWith("group1|"));
+        assertTrue(info.contains("master=localhost:8801"));
+        assertTrue(info.contains("localhost:8802"));
+        assertTrue(info.contains("localhost:8803"));
+
+        String directInfo = loadBalancer.getGroupInfo("group1", groupMap);
+        assertEquals(info, directInfo);
     }
-
+    
     @Test
-    @DisplayName("Test region removal and group cleanup")
-    public void testRemoveRegion() {
-        loadBalancer.addRegionToGroup("group1", "MASTER", "node1", "localhost:8801");
-        loadBalancer.addRegionToGroup("group1", "SLAVE", "node2", "localhost:8802");
+    @DisplayName("Test stats generation")
+    public void testGetStats() {
+        Map<String, RegionGroup> groupMap = new LinkedHashMap<>();
+        groupMap.put("group1", createGroup("group1", "localhost:8801", new String[]{"localhost:8802"}));
 
-        loadBalancer.removeRegion("localhost:8802");
-        RegionGroup group1 = loadBalancer.getGroupMap().get("group1");
-        assertNotNull(group1);
-        assertEquals(0, group1.getSlaves().size());
+        Map<String, String> tableToGroup = new HashMap<>();
+        tableToGroup.put("t1", "group1");
 
-        loadBalancer.removeRegion("localhost:8801");
-        // Group should be removed when empty
-        assertNull(loadBalancer.getGroupMap().get("group1"));
-    }
-
-    @Test
-    @DisplayName("Test getting group info string")
-    public void testGetGroupInfoString() {
-        loadBalancer.addRegionToGroup("group1", "MASTER", "node1", "localhost:8801");
-        loadBalancer.addRegionToGroup("group1", "SLAVE", "node2", "localhost:8802");
-        loadBalancer.addRegionToGroup("group1", "SLAVE", "node3", "localhost:8803");
-        
-        loadBalancer.assignTableToGroup("orders", "group1");
-        
-        String groupInfo = loadBalancer.getGroupInfoForTable("orders");
-        assertNotNull(groupInfo);
-        assertTrue(groupInfo.startsWith("group1|"));
-        assertTrue(groupInfo.contains("master=localhost:8801"));
-        assertTrue(groupInfo.contains("slaves="));
-        assertTrue(groupInfo.contains("localhost:8802"));
-        assertTrue(groupInfo.contains("localhost:8803"));
+        String stats = loadBalancer.getStats(groupMap, tableToGroup);
+        assertTrue(stats.contains("Group 'group1'"));
+        assertTrue(stats.contains("t1 -> group1"));
+        assertTrue(stats.contains("localhost:8801"));
+        assertTrue(stats.contains("localhost:8802"));
     }
 }

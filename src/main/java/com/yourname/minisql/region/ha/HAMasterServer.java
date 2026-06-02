@@ -1,7 +1,10 @@
 package com.yourname.minisql.region.ha;
 
+
 import com.yourname.minisql.region.loadbalance.LoadBalancer;
-import com.yourname.minisql.region.master.MasterServer;
+import com.yourname.minisql.region.ha.masterengine.MasterServer;
+import com.yourname.minisql.region.ha.masterengine.MetadataManager;
+import com.yourname.minisql.region.ha.masterengine.TopologyManager;
 import com.yourname.minisql.region.zk.ZkClientManager;
 import com.yourname.minisql.region.zk.ZkConfig;
 import org.apache.curator.framework.CuratorFramework;
@@ -9,24 +12,39 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 高可用 Master 服务器
+ * 高可用 Master 服务器（编排层）
+ *
+ * 负责编排三个 Manager 和 MasterServer 的生命周期：
+ *   1. MetadataManager  : table → group 映射 + ZK 持久化
+ *   2. TopologyManager  : 集群拓扑 + 故障检测
+ *   3. LoadBalancer      : 无状态策略选择器
+ *   4. MasterServer      : 网络 Facade
+ *
+ * 通过 MasterElection 实现 Leader 选举：
+ *   - 成为 Leader 时启动上述组件
+ *   - 失去 Leadership 时停止上述组件
  */
 public class HAMasterServer {
     private static final Logger log = LoggerFactory.getLogger(HAMasterServer.class);
     
     private final int port;
     private final String masterId;
+    
+    // 网络层
     private MasterServer masterServer;
     private MasterElection election;
-    private LoadBalancer loadBalancer;
-    private RegionFailover regionFailover;
-    private volatile boolean running = true;
     private Thread masterThread;
+    
+    // 三个核心 Manager
+    private MetadataManager metadataManager;
+    private TopologyManager topologyManager;
+    private LoadBalancer loadBalancer;
+    
+    private volatile boolean running = true;
     
     public HAMasterServer(int port, String masterId) {
         this.port = port;
         this.masterId = masterId;
-        this.loadBalancer = new LoadBalancer();
     }
     
     public void start() throws Exception {
@@ -45,19 +63,19 @@ public class HAMasterServer {
             @Override
             public void onBecomeLeader() {
                 log.info("=== This master ({}) became LEADER ===", masterId);
-                startMasterServer();
+                startMasterEngine();
             }
             
             @Override
             public void onBecomeFollower() {
                 log.info("=== This master ({}) became FOLLOWER ===", masterId);
-                stopMasterServer();
+                stopMasterEngine();
             }
             
             @Override
             public void onMasterFailed() {
                 log.error("Master failed! Stopping MasterServer...");
-                stopMasterServer();
+                stopMasterEngine();
             }
         });
         
@@ -67,16 +85,30 @@ public class HAMasterServer {
         log.info("HA Master server started on port {}, id: {}", port, masterId);
     }
     
-    private void startMasterServer() {
+    private void startMasterEngine() {
         if (masterServer != null) {
             log.warn("MasterServer already running");
             return;
         }
         
         try {
-            masterServer = new MasterServer(port, loadBalancer);
+            // 1. 创建三个 Manager
+            metadataManager = new MetadataManager();
+            topologyManager = new TopologyManager();
+            loadBalancer = new LoadBalancer();
             
-            // 写入 Active Master 地址到 ZK
+            // 2. 启动 MetadataManager（从 ZK 加载表映射）
+            metadataManager.start();
+            log.info("MetadataManager started");
+            
+            // 3. 启动 TopologyManager（初始化 ServiceDiscovery + RegionFailover）
+            topologyManager.start();
+            log.info("TopologyManager started");
+            
+            // 4. 构造 MasterServer（网络 Facade），注入三个 Manager
+            masterServer = new MasterServer(port, metadataManager, topologyManager, loadBalancer);
+            
+            // 5. 写入 Active Master 地址到 ZK
             String activeMasterAddr = getLocalHostAddress() + ":" + port;
             try {
                 String activeMasterPath = ZkConfig.ZK_MASTER_PATH + "/active";
@@ -92,42 +124,7 @@ public class HAMasterServer {
                 log.error("Failed to register active master in ZK", e);
             }
             
-            // 启动 Region 故障检测（复用 MasterServer 中 ServiceDiscovery 的 ZK 监听）
-            try {
-                regionFailover = new RegionFailover(new RegionFailover.FailoverListener() {
-                    @Override
-                    public void onRegionFailed(String regionId, String address) {
-                        log.warn("Region failed: {} ({})", regionId, address);
-                        if (loadBalancer != null) {
-                            loadBalancer.markAvailable(address, false);
-                        }
-                    }
-                    
-                    @Override
-                    public void onRegionRecovered(String regionId, String address) {
-                        log.info("Region recovered: {} ({})", regionId, address);
-                        if (loadBalancer != null) {
-                            loadBalancer.markAvailable(address, true);
-                        }
-                    }
-                    
-                    @Override
-                    public void onFailoverCompleted(String fromRegion, String toRegion) {
-                        log.info("Failover completed: {} -> {}", fromRegion, toRegion);
-                    }
-                });
-                
-                // 注册为 ServiceDiscovery 的监听器，复用同一个 CuratorCache
-                masterServer.addRegionChangeListener(regionFailover);
-                
-                // 启动健康检查定时任务
-                regionFailover.start();
-                log.info("RegionFailover started (using ServiceDiscovery events)");
-            } catch (Exception e) {
-                log.error("Failed to start region failover", e);
-            }
-            
-            // 在独立线程中启动 MasterServer
+            // 6. 在独立线程中启动 MasterServer（Socket accept 会阻塞）
             masterThread = new Thread(() -> {
                 try {
                     log.info("MasterServer starting on port {}", port);
@@ -147,19 +144,8 @@ public class HAMasterServer {
         }
     }
     
-    private void stopMasterServer() {
-        // 停止 RegionFailover
-        if (regionFailover != null) {
-            try {
-                regionFailover.stop();
-                regionFailover = null;
-                log.info("RegionFailover stopped");
-            } catch (Exception e) {
-                log.error("Error stopping RegionFailover", e);
-            }
-        }
-        
-        // 停止 MasterServer
+    private void stopMasterEngine() {
+        // 1. 停止 MasterServer（网络层）
         if (masterServer != null) {
             try {
                 // 从 ZK 删除 Active Master 节点
@@ -180,7 +166,31 @@ public class HAMasterServer {
             }
         }
         
-        // 等待 Master 线程结束
+        // 2. 停止 TopologyManager（包含 ServiceDiscovery + RegionFailover）
+        if (topologyManager != null) {
+            try {
+                topologyManager.stop();
+                log.info("TopologyManager stopped");
+            } catch (Exception e) {
+                log.error("Error stopping TopologyManager", e);
+            }
+            topologyManager = null;
+        }
+        
+        // 3. 停止 MetadataManager
+        if (metadataManager != null) {
+            try {
+                metadataManager.stop();
+                log.info("MetadataManager stopped");
+            } catch (Exception e) {
+                log.error("Error stopping MetadataManager", e);
+            }
+            metadataManager = null;
+        }
+        
+        loadBalancer = null;
+        
+        // 4. 等待 Master 线程结束
         if (masterThread != null && masterThread.isAlive()) {
             try {
                 masterThread.join(5000);
@@ -201,7 +211,7 @@ public class HAMasterServer {
         
         log.info("Stopping HAMasterServer on port {}, id: {}", port, masterId);
         
-        stopMasterServer();
+        stopMasterEngine();
         
         if (election != null) {
             try {

@@ -79,10 +79,15 @@ DELETE FROM users WHERE id = '999';
 
 
 ## 问题
-master层的table仅存储在内存
 
-可以存到zk里面
+client
 
+master层的table仅存储在内存,可以存到zk里面
+
+master节点有三种condition:no used,follower,leader
+
+master层的代码重写:
+loadbalance：应该只负责提供一个接口来确认使用哪一个regiongroup?
 
 region层的master挂了换一个当master
 

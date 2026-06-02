@@ -1,4 +1,5 @@
-package com.yourname.minisql.region.ha;
+package com.yourname.minisql.region.ha.masterengine;
+
 
 import com.yourname.minisql.region.zk.ServiceDiscovery;
 import com.yourname.minisql.region.zk.ZkConfig;

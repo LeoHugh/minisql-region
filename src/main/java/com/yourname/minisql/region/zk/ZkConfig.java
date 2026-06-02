@@ -22,6 +22,10 @@ public class ZkConfig {
     // 分组（Replica Group / Shard）根路径
     public static final String ZK_GROUPS_PATH = ZK_BASE_PATH + "/groups";
     
+    // 元数据根路径（table -> group 映射持久化）
+    public static final String ZK_METADATA_PATH = ZK_BASE_PATH + "/metadata";
+    public static final String ZK_TABLES_PATH = ZK_METADATA_PATH + "/tables";
+    
     /**
      * 获取指定 groupId 的 regions 路径: /minisql/groups/<groupId>/regions
      */
@@ -65,6 +69,16 @@ public class ZkConfig {
     }
     
     /**
+     * 获取当前使用的 tables 元数据路径
+     */
+    public static String getTablesPath() {
+        if (TestConfig.isTestMode) {
+            return TestConfig.TEST_ZK_TABLES_PATH;
+        }
+        return ZK_TABLES_PATH;
+    }
+    
+    /**
      * 获取当前使用的 Base 路径
      */
     public static String getBasePath() {
@@ -81,6 +95,8 @@ public class ZkConfig {
         public static final String TEST_ZK_REGIONS_PATH = TEST_ZK_BASE_PATH + "/regions";
         public static final String TEST_ZK_MASTER_PATH = TEST_ZK_BASE_PATH + "/master";
         public static final String TEST_ZK_GROUPS_PATH = TEST_ZK_BASE_PATH + "/groups";
+        public static final String TEST_ZK_METADATA_PATH = TEST_ZK_BASE_PATH + "/metadata";
+        public static final String TEST_ZK_TABLES_PATH = TEST_ZK_METADATA_PATH + "/tables";
         public static final int TEST_SESSION_TIMEOUT_MS = 5000;
         public static final int TEST_CONNECTION_TIMEOUT_MS = 3000;
         

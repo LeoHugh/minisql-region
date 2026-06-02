@@ -15,8 +15,8 @@ public class RegionGroup {
     private static final Logger log = LoggerFactory.getLogger(RegionGroup.class);
     
     private final String groupId;
-    private volatile LoadBalancer.RegionNode master;
-    private final List<LoadBalancer.RegionNode> slaves = new CopyOnWriteArrayList<>();
+    private volatile RegionNode master;
+    private final List<RegionNode> slaves = new CopyOnWriteArrayList<>();
     
     public RegionGroup(String groupId) {
         this.groupId = groupId;
@@ -28,11 +28,11 @@ public class RegionGroup {
     
     // ---- Master ----
     
-    public LoadBalancer.RegionNode getMaster() {
+    public RegionNode getMaster() {
         return master;
     }
     
-    public void setMaster(LoadBalancer.RegionNode node) {
+    public void setMaster(RegionNode node) {
         this.master = node;
         log.info("Group '{}': master set to {}", groupId, node);
     }
@@ -51,11 +51,11 @@ public class RegionGroup {
     
     // ---- Slaves ----
     
-    public List<LoadBalancer.RegionNode> getSlaves() {
+    public List<RegionNode> getSlaves() {
         return new ArrayList<>(slaves);
     }
     
-    public void addSlave(LoadBalancer.RegionNode node) {
+    public void addSlave(RegionNode node) {
         // 防止重复
         boolean exists = slaves.stream()
             .anyMatch(s -> s.getAddress().equals(node.getAddress()));
@@ -75,7 +75,7 @@ public class RegionGroup {
      */
     public List<String> getSlaveAddresses() {
         List<String> addrs = new ArrayList<>();
-        for (LoadBalancer.RegionNode s : slaves) {
+        for (RegionNode s : slaves) {
             if (s.isAvailable()) {
                 addrs.add(s.getAddress());
             }
@@ -115,7 +115,7 @@ public class RegionGroup {
      */
     public boolean hasAvailableNode() {
         if (hasMaster()) return true;
-        return slaves.stream().anyMatch(LoadBalancer.RegionNode::isAvailable);
+        return slaves.stream().anyMatch(RegionNode::isAvailable);
     }
     
     /**
